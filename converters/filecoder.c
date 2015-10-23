@@ -21,7 +21,7 @@ int main(int argc, char** argv)
 	if(!stat(argv[1], &s)) {
 		if(S_ISDIR(s.st_mode) || S_ISREG(s.st_mode)) {
 			//printf("%d\n", in_byte_size(".", argv[1]));
-			make_filesystem(argv[1], out);
+			make_filesystem(argv[1], out, ext_sz);
 		} else {
 			printf("Bad argument %s, expected path to a file or a directory\n", argv[1]);
 		}
@@ -56,13 +56,111 @@ int parse_ext(int argc, char** argv)
 
 // Makes the filesystem from the files or directories a
 // `root_path` and outputs the binary data to `out_path`
-void make_filesystem(char* root_path, char* out_path)
+void make_filesystem(char* root_path, char* out_path, int extent_size)
 {
 	int byte_size = in_byte_size(".", root_path);
 	FILE* out = fopen(out_path, "w");
 	dirmeta* top = build_hierarchy(root_path);
-	write_fs_to(top, out_path);
+	write_fs_to(top, out_path, extent_size);
 	struct stat s;
+}
+
+void write_fs_to(dirmeta* d, char* path, int extent_size)
+{
+	filepart* fs = calloc(1, sizeof(filepart));
+	fs->ext_size = extent_size;
+	memmove(fs->name, "test.coal", strlen("test.coal"));
+	fs->file_hierarchy_sz = hierarchy_size(d);
+	fs->data_enc = 0x00;
+	int data_sz = data_size(d, extent_size);
+	fs->size_of_the_volume = data_sz + fs->file_hierarchy_sz + 1;
+	FILE* fout = fopen(path, "w");
+	write_fs_info(fs, fout);
+	fclose(fout);
+}
+
+void write_fs_info(filepart* fs, FILE* out)
+{
+	int ext_bytesz = fs->ext_size * 512;
+	char* extent = calloc(1, ext_bytesz);
+	char* buffer = u64le_to_me(fs->size_of_the_volume);
+	memcpy(extent, buffer, 8);
+	extent[8] = fs->ext_size;
+	memcpy(extent + 9, fs->name, 40);
+	free(buffer);
+	buffer = u64le_to_be(fs->file_hierarchy_sz);
+	memcpy(extent + 49, buffer, 8);
+	free(buffer);
+	buffer[57] = fs->data_enc;
+	if(fs->data_enc == 0x40) {
+		buffer[58] = fs->masklen;
+		memcpy(extent + 59, fs->mask, fs->masklen);
+	}
+	fwrite(extent, 1, ext_bytesz, out);
+}
+
+char* u64le_to_me(uint64_t data)
+{
+	char* buffer = malloc(8);
+	uint32_t p1 = (data & 0xFFFFFFFF00000000) >> 32;
+	memcpy(buffer, &p1, 4);
+	p1 = data & 0xFFFFFFFF;
+	memcpy(buffer + 4, &p1, 4);
+	return buffer;
+}
+
+char* u64le_to_be(uint64_t data)
+{
+	int i = 0;
+	uint8_t d;
+	char* buf = malloc(8);
+	for(i = 0; i < 8; i++) {
+		d = (data & (0xFFl << (8 * i))) >> (8 * i);
+		buf[7 - i] = d;
+	}
+	return buf;
+}
+
+// Computes the size of the data in extents
+int data_size(dirmeta* d, int extent_size)
+{
+	int extents = 0;
+	metalist* m = d->children;
+	int ext_byte_size = extent_size * 512;
+	int fl_data_chunk_sz = ext_byte_size - 1 - 4 - 4;
+	int dir_data_chunk_sz = ext_byte_size - 4 - 6 - 6 - 4;
+	int children = 0;
+	while(m != NULL) {
+		if(m->magic == 0x40) {
+			int flsz = in_byte_size(".", ((filemeta*)m->metadata)->src_path);
+			extents += flsz / fl_data_chunk_sz;
+			if((flsz % fl_data_chunk_sz) != 0) extents += 1;
+		} else if (m->magic == 0x80) {
+			extents += data_size((dirmeta*)m->metadata, extent_size);
+		}
+		children += 1;
+		m = m->next;
+	}
+	children *= 4;
+	extents += children / dir_data_chunk_sz;
+	if((children % dir_data_chunk_sz)!= 0) extents += 1;
+	return extents;
+}
+
+// Computes the size of the file hierarchy metadata in extents
+int hierarchy_size(dirmeta* d)
+{
+	int extents = 1;
+	metalist* m = d->children;
+	while(m != NULL) {
+		if(m->magic == 0x40) {
+			extents += 1;
+		}else if(m->magic = 0x80) {
+			extents += hierarchy_size((dirmeta*)m->metadata);
+		}
+		m = m->next;
+	}
+	return extents;
 }
 
 // Builds an in-memory file-hierarchy with a few metadata
@@ -78,6 +176,7 @@ dirmeta* build_hierarchy(char* top_path) {
 			add_file_to(top_path, top);
 		}
 	}
+	return top;
 }
 
 // Adds folder at `path` to the hierarchy of `d` with id `next`
@@ -112,9 +211,10 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 			} else if(S_ISREG(st.st_mode)) {
 				add_file_to(s, curr);
 			}
+		} else {
+			free(s);
 		}
 		dent = readdir(dir);
-		free(s);
 	}
 	closedir(dir);
 	return next;

@@ -16,22 +16,8 @@ typedef struct filemeta {
 	char* src_path;
 } filemeta;
 
-// A data block for a file
-typedef struct filedata {
-	// First byte determines if the file data is a continuation block or not
-	uint8_t continuation_header;
-	// Size of the block in bytes
-	uint32_t byte_size;
-	// Data of the file, size up to
-	char* data;
-	// Next block's location (in extents)
-	uint32_t continuation_location;
-} filedata;
-
 // A File partition
 typedef struct filepart {
-	// Size of the size of the volume
-	char volume_volume_sz;
 	// Size of the volume in extents (maximum 8 bytes)
 	uint64_t size_of_the_volume;
 	// Size of an extent
@@ -79,7 +65,7 @@ typedef struct dirmeta {
 
 char* parse_out(int argc, char** argv);
 int parse_ext(int argc, char** argv);
-void make_filesystem(char* root_path, char* out_path);
+void make_filesystem(char* root_path, char* out_path, int ext_sz);
 int in_byte_size(char* parent_path, char* inpath);
 int in_file_byte_size(char* parent_path, char* in);
 int in_dir_byte_size(char* parent_path, char* in_path);
@@ -89,5 +75,9 @@ void add_file_to(char* path, dirmeta* d);
 int add_folder_to(char* path, dirmeta* d, int next);
 uint32_t file_byte_to_extent_size(long byte_size);
 void append_meta_to_list(metalist* lst, metalist* node);
-filedata* encode_file(filepart* fp, char* f);
-void write_fs_to(dirmeta* d, char* out_path);
+void write_fs_to(dirmeta* d, char* out_path, int ext_sz);
+int hierarchy_size(dirmeta* d);
+int data_size(dirmeta* d, int extent_size);
+void write_fs_info(filepart* fs, FILE* out);
+char* u64le_to_me(uint64_t data);
+char* u64le_to_be(uint64_t data);
