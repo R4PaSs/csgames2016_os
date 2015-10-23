@@ -7,11 +7,11 @@ typedef struct filemeta {
 	// File name in UTF-8
 	char filename[50];
 	// Location of the file in extents
-	uint32_t location;
+	uint64_t data_location;
 	// File size in extents
-	uint32_t ext_size;
+	uint64_t ext_size;
 	// File size in bytes
-	uint32_t byte_size;
+	uint64_t byte_size;
 	// Path to source file
 	char* src_path;
 } filemeta;
@@ -56,7 +56,7 @@ typedef struct dirmeta {
 	// Name of the directory, must be null-terminated
 	char dir_name[50];
 	// Location of the data in extents
-	uint32_t data_location;
+	uint64_t data_location;
 	// Children data
 	metalist* children;
 	// Path to source directory
@@ -79,5 +79,8 @@ void write_fs_to(dirmeta* d, char* out_path, int ext_sz);
 int hierarchy_size(dirmeta* d);
 int data_size(dirmeta* d, int extent_size);
 void write_fs_info(filepart* fs, FILE* out);
-char* u64le_to_me(uint64_t data);
-char* u64le_to_be(uint64_t data);
+void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size);
+void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size);
+void u64le_to_be(uint64_t data, char* b);
+void u32le_to_be(uint32_t data, char* b);
+void u64le_to_me(uint64_t data, char* b);
