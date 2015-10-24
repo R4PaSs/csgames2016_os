@@ -63,6 +63,40 @@ typedef struct dirmeta {
 	char* src_path;
 } dirmeta;
 
+typedef struct writedef {
+	// Is the data a dirmeta or a filemeta ? 0x80 for dir, 0x40 for file
+	uint8_t magic;
+	// Metadata, can infer type with magic
+	void* meta;
+	// Next extent to write at, 0x00 if all was written
+	int next_extent;
+} writedef;
+
+typedef struct filewrite {
+	// Source of the file
+	FILE* src;
+	// Remaining bytes to write
+	int remaining;
+	// Metadata for the file
+	filemeta* metadata;
+} filewrite;
+
+typedef struct dirwrite {
+	// Directory metadata
+	dirmeta* dir;
+	// List of children to write to disk
+	metalist* children;
+} dirwrite;
+
+typedef struct writequeue writequeue;
+
+typedef struct writequeue {
+	// The definition to write
+	writedef* definition;
+	// The next element to write
+	writequeue* next;
+} writequeue;
+
 char* parse_out(int argc, char** argv);
 int parse_ext(int argc, char** argv);
 void make_filesystem(char* root_path, char* out_path, int ext_sz);
@@ -82,5 +116,18 @@ void write_fs_info(filepart* fs, FILE* out);
 void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size);
 void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size);
 void u64le_to_be(uint64_t data, char* b);
-void u32le_to_be(uint32_t data, char* b);
 void u64le_to_me(uint64_t data, char* b);
+void u32le_to_be(uint32_t data, char* b);
+void u32le_to_me(uint32_t data, char* b);
+void u16le_to_be(uint16_t data, char* b);
+int count_children(dirmeta* d);
+int write_dirdata_to(dirmeta* d, FILE* out, char* extent, int ext_size, int current_ext, int next_cont);
+int write_filedata_to(filemeta* f, FILE* out, char* extent, int ext_size, int current_ext, int next_cont);
+writequeue* build_writequeue(dirmeta* d);
+void append_to_writequeue(writequeue* list, writequeue* node);
+void add_dir_to_queue(dirmeta* d, writequeue* w);
+writequeue* make_dirnode(dirmeta* d);
+writequeue* make_filenode(filemeta* f);
+void commit_data_to_disk(writequeue* wq, FILE* out, char* extent, int ext_size);
+writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);
+writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);

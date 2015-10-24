@@ -65,23 +65,25 @@ void make_filesystem(char* root_path, char* out_path, int extent_size)
 	struct stat s;
 }
 
-int assign_start_ext_to_meta(dirmeta* d, int from)
+// Assign data start extents to each entity in hierarchy
+uint32_t assign_start_ext_to_meta(dirmeta* d, uint32_t from)
 {
 	d->data_location = from;
-	from += 1;
+	uint32_t nxt = from + 1;
 	metalist* m = d->children;
 	while(m != NULL) {
 		if(m->magic == 0x80) {
-			from += assign_start_ext_to_meta((dirmeta*)m->metadata, from);
+			nxt += assign_start_ext_to_meta((dirmeta*)m->metadata, nxt);
 		} else if(m->magic == 0x40) {
-			((filemeta*) m->metadata)->data_location = from;
-			from += 1;
+			((filemeta*) m->metadata)->data_location = nxt;
+			nxt += 1;
 		} else {
 			printf("Fatal error: item not a directory or file in file hierarchy.\n");
 			exit(-1);
 		}
+		m = m->next;
 	}
-	return from;
+	return nxt;
 }
 
 // Write file system to `path`
@@ -97,7 +99,10 @@ void write_fs_to(dirmeta* d, char* path, int extent_size)
 	FILE* fout = fopen(path, "w");
 	write_fs_info(fs, fout);
 	char* ext = malloc(extent_size * 512);
+	assign_start_ext_to_meta(d, fs->file_hierarchy_sz);
 	write_hierarchy_to(d, fout, ext, extent_size);
+	writequeue* w = build_writequeue(d);
+	commit_data_to_disk(w, fout, ext, extent_size);
 	fclose(fout);
 }
 
@@ -125,7 +130,7 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size)
 	extent[0] = 0x80;
 	u32le_to_be(d->dir_id, extent + 1);
 	u32le_to_be(d->parent_dir, extent + 5);
-	memcpy(d->dir_name, extent + 9, 50);
+	memcpy(extent + 9, d->dir_name, 50);
 	u64le_to_be(d->data_location, extent + 59);
 	fwrite(extent, 1, ext_size * 512, out);
 	metalist* m = d->children;
@@ -142,6 +147,7 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size)
 	}
 }
 
+// Write a file's metadata to `out`, `extent` is used as a temporary buffer to store data
 void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size)
 {
 	memset(extent, 0, ext_size * 512);
@@ -154,6 +160,219 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size)
 	fwrite(extent, 1, ext_size * 512, out);
 }
 
+// Builds a write queue for the data
+writequeue* build_writequeue(dirmeta* d)
+{
+	writequeue* curr = make_dirnode(d);
+	metalist* m = d->children;
+	while(m != NULL) {
+		if(m->magic == 0x80) {
+			add_dir_to_queue((dirmeta*)m->metadata, curr);
+		} else if(m->magic == 0x40) {
+			append_to_writequeue(curr, make_filenode((filemeta*)m->metadata));
+		}
+		m = m->next;
+	}
+	return curr;
+}
+
+// Adds a directory write node to `w`
+//
+// Recursively parses the info from the metadata contained in `d`
+void add_dir_to_queue(dirmeta* d, writequeue* w)
+{
+	writequeue* curr = make_dirnode(d);
+	append_to_writequeue(w, curr);
+	metalist* m = d->children;
+	while(m != NULL) {
+		if(m->magic == 0x80) {
+			add_dir_to_queue((dirmeta*)m->metadata, curr);
+		} else if(m->magic == 0x40) {
+			append_to_writequeue(w, make_filenode((filemeta*)m->metadata));
+		}
+		m = m->next;
+	}
+}
+
+// Makes a directory write node from the data `d`
+writequeue* make_dirnode(dirmeta* d)
+{
+	writequeue* curr = calloc(1, sizeof(writequeue));
+	writedef* wd = calloc(1, sizeof(writedef));
+	dirwrite* dw = calloc(1, sizeof(dirwrite));
+	dw->dir = d;
+	dw->children = d->children;
+	wd->magic = 0x80;
+	wd->meta = dw;
+	wd->next_extent = d->data_location;
+	curr->definition = wd;
+	return curr;
+}
+
+// Makes a file write node from the data `f`
+writequeue* make_filenode(filemeta* f)
+{
+	writequeue* curr = calloc(1, sizeof(writequeue));
+	writedef* wd = calloc(1, sizeof(writedef));
+	wd->magic = 0x40;
+	filewrite* fw = calloc(1, sizeof(filewrite));
+	FILE* fr = fopen(f->src_path, "r");
+	fw->src = fr;
+	fw->remaining = in_byte_size(".", f->src_path);
+	fw->metadata = f;
+	wd->meta = fw;
+	wd->next_extent = f->data_location;
+	curr->definition = wd;
+	return curr;
+}
+
+// Appends `node` to `lst`
+void append_to_writequeue(writequeue* lst, writequeue* node)
+{
+	while(lst->next != NULL) lst = lst->next;
+	lst->next = node;
+}
+
+// Writes the contents of queue `wq` to disk
+void commit_data_to_disk(writequeue* wq, FILE* out, char* extent, int ext_size)
+{
+	while(wq != NULL) {
+		if(wq->definition->magic == 0x80) {
+			wq = write_dir_chunk(wq, out, extent, ext_size);
+		} else if(wq->definition->magic == 0x40) {
+			wq = write_file_chunk(wq, out, extent, ext_size);
+		}
+	}	
+}
+
+// Writes a chunk of data for the directory in `wq`
+writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_size)
+{
+	int extpos = 0;
+	int extentbtsz = ext_size * 512;
+	memset(extent, 0, extentbtsz);
+	dirwrite* dw = wq->definition->meta;
+	dirmeta* d = dw->dir;
+	metalist* s = dw->children;
+	if(d->data_location == wq->definition->next_extent) {
+		extent[extpos] = 0x40;
+		u32le_to_be(count_children(d), extent);
+		// TODO date, 14 bytes in two fields
+		extpos += 19;
+	} else {
+		extent[extpos] = 0x80;
+		extpos += 1;
+	}
+	metalist* m = dw->children;
+	int i;
+	int entries = (extentbtsz - extpos - 4) / 5;
+	for(i = 0; i < entries; i++) {
+		if(m->magic = 0x80) {
+			extent[extpos] = 0x80;
+			u32le_to_be(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
+		} else if(m->magic == 0x40) {
+			extent[extpos] = 0x40;
+			u32le_to_be(((filemeta*)m->metadata)->data_location, extent + extpos + 1);
+		}
+		extpos += 5;
+		metalist* m2 = m->next;
+		free(m);
+		m = m2;
+		if(m == NULL) break;
+	}
+	if(m != NULL) {
+		writequeue* w = wq;
+		while(w->next != NULL) w = w->next;
+		int nxt = w->definition->next_extent + 1;
+		wq = w->next;
+		w->definition->next_extent = nxt;
+		if(wq != NULL) {
+			append_to_writequeue(w, wq);
+		} else {
+			wq = w;
+		}
+	} else {
+		writequeue* w = wq;
+		free(d);
+		free(dw);
+		free(w->definition);
+		free(w);
+		wq = wq->next;
+	}
+	fwrite(extent, 1, extentbtsz, out);
+	return wq;
+}
+
+// Writes a chunk of data for the file in `wq`
+writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_size)
+{
+	int extentbtsz = ext_size * 512;
+	int maxdata = extentbtsz - 9;
+	memset(extent, 0, extentbtsz);
+	writedef* wd = wq->definition;
+	filewrite* fw = wd->meta;
+	filemeta* fm = fw->metadata;
+	if(fm->data_location != wd->next_extent) {
+		extent[0] = 0x20;
+	} else {
+		extent[0] = 0x00;
+	}
+	if(fw->remaining > maxdata) {
+		u32le_to_me(maxdata, extent + 1);
+	} else {
+		u32le_to_me(fw->remaining, extent + 1);
+	}
+	int rd = fread(extent + 5, 1, maxdata, fw->src);
+	fw->remaining -= rd;
+	if(fw->remaining > 0) {
+		writequeue* w = wq;
+		while(w->next != NULL) w = w->next;
+		int nxt = w->definition->next_extent + 1;
+		wq = w->next;
+		w->definition->next_extent = nxt;
+		if(wq != NULL) {
+			append_to_writequeue(w, wq);
+		} else {
+			wq = w;
+		}
+		u32le_to_be(nxt, extent + extentbtsz - 5);
+	} else {
+		writequeue* w = wq;
+		wq = w->next;
+		fclose(fw->src);
+		free(fm->src_path);
+		free(fm);
+		free(fw);
+		free(w->definition);
+		free(w);
+	}
+	fwrite(extent, 1, extentbtsz, out);
+	return wq;
+}
+
+// Count the number of children of directory `d`
+int count_children(dirmeta* d)
+{
+	metalist* m = d->children;
+	int children = 0;
+	while(m != NULL) {
+		children++;
+		m = m->next;
+	}
+	return children;
+}
+
+// Write the 16 bits of `data` to `buffer` in big-endian form
+void u16le_to_be(uint16_t data, char* buffer) {
+	int i = 0;
+	uint8_t d;
+	for(i = 0; i < 2; i++) {
+		d = (data & (0xFFl << (2 * i))) >> (2 * i);
+		buffer[1 - i] = d;
+	}
+}
+
+// Write the 32 bits of `data` to `buffer` in big-endian form
 void u32le_to_be(uint32_t data, char* buffer) {
 	int i = 0;
 	uint8_t d;
@@ -163,6 +382,16 @@ void u32le_to_be(uint32_t data, char* buffer) {
 	}
 }
 
+// Write the 32 bits of `data` to `buffer` in middle-endian form
+void u32le_to_me(uint32_t data, char* buffer)
+{
+	uint16_t p1 = (data & 0xFFFF0000) >> 16;
+	memcpy(buffer, &p1, 2);
+	p1 = data & 0xFFFF;
+	memcpy(buffer + 2, &p1, 2);
+}
+
+// Write the 64 bits of `data` to `buffer` in middle-endian form
 void u64le_to_me(uint64_t data, char* buffer)
 {
 	uint32_t p1 = (data & 0xFFFFFFFF00000000) >> 32;
@@ -171,6 +400,7 @@ void u64le_to_me(uint64_t data, char* buffer)
 	memcpy(buffer + 4, &p1, 4);
 }
 
+// Write the 64 bits of `data` to `buf` in big-endian form
 void u64le_to_be(uint64_t data, char* buf)
 {
 	int i = 0;
@@ -192,9 +422,13 @@ int data_size(dirmeta* d, int extent_size)
 	int children = 0;
 	while(m != NULL) {
 		if(m->magic == 0x40) {
-			int flsz = in_byte_size(".", ((filemeta*)m->metadata)->src_path);
-			extents += flsz / fl_data_chunk_sz;
-			if((flsz % fl_data_chunk_sz) != 0) extents += 1;
+			filemeta* f = (filemeta*)m->metadata;
+			int flsz = in_byte_size(".", f->src_path);
+			int flextents = flsz / fl_data_chunk_sz;
+			if((flsz % fl_data_chunk_sz) != 0) flextents += 1;
+			f->ext_size = flextents;
+			extents += flextents;
+			f->byte_size = flsz;
 		} else if (m->magic == 0x80) {
 			extents += data_size((dirmeta*)m->metadata, extent_size);
 		}
@@ -256,8 +490,7 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 	char* bn = basename(path);
 	int nlen = strlen(bn);
 	if(nlen >= 50) nlen = 49;
-	memmove(curr->dir_name, bn, nlen);
-	printf("Added folder %s to metas\n", bn);
+	memcpy(curr->dir_name, bn, nlen);
 	next += 1;
 	DIR* dir = opendir(path);
 	struct dirent* dent = readdir(dir);
@@ -291,7 +524,6 @@ void add_file_to(char* path, dirmeta* d) {
 	int bnln = strlen(bn);
 	if(bnln > 49) bnln = 49;
 	memcpy(fm->filename, bn, bnln);
-	printf("Added file %s to metas\n", bn);
 	metalist* m = calloc(1, sizeof(metalist));
 	m->magic = 0x40;
 	m->metadata = fm;
