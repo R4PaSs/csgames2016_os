@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <libgen.h>
+#include <unistd.h>
 
 int main(int argc, char** argv)
 {
@@ -30,6 +31,7 @@ int main(int argc, char** argv)
 	} else {
 		printf("Error: syscall to stat failed, are you sure %s exists ?", path);
 	}
+	free(path);
 }
 
 // Checks if option '-o' is used, defaults to "out"
@@ -61,10 +63,8 @@ int parse_ext(int argc, char** argv)
 void make_filesystem(char* root_path, char* out_path, int extent_size)
 {
 	int byte_size = in_byte_size(".", root_path);
-	FILE* out = fopen(out_path, "w");
 	dirmeta* top = build_hierarchy(root_path);
 	write_fs_to(top, out_path, extent_size);
-	struct stat s;
 }
 
 // Assign data start extents to each entity in hierarchy
@@ -576,13 +576,16 @@ int in_file_byte_size(char* parent_path, char* in_path)
 		return s.st_size;
 	}
 	free(path);
+	close(f);
 	return 0;
 }
 
 int in_dir_byte_size(char* parent_path, char* in_path)
 {
 	int size = 0;
-	DIR* d = opendir(in_path);
+	char* strs1[] = {parent_path, in_path};
+	char* dirpath = join(strs1, 2, "/");
+	DIR* d = opendir(dirpath);
 	if(d == NULL){
 		return -1;
 	}
@@ -602,6 +605,7 @@ int in_dir_byte_size(char* parent_path, char* in_path)
 		free(path);
 	}
 	closedir(d);
+	free(dirpath);
 	return size;
 }
 
