@@ -103,6 +103,8 @@ void write_fs_to(dirmeta* d, char* path, int extent_size)
 	write_hierarchy_to(d, fout, ext, extent_size);
 	writequeue* w = build_writequeue(d);
 	commit_data_to_disk(w, fout, ext, extent_size);
+	free(ext);
+	free(fs);
 	fclose(fout);
 }
 
@@ -121,6 +123,7 @@ void write_fs_info(filepart* fs, FILE* out)
 		memcpy(extent + 59, fs->mask, fs->masklen);
 	}
 	fwrite(extent, 1, ext_bytesz, out);
+	free(extent);
 }
 
 // Write metadata to `out`, `extent` is used as a temporary buffer to store data
@@ -294,6 +297,7 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 		}
 	} else {
 		writequeue* w = wq;
+		free(d->src_path);
 		free(d);
 		free(dw);
 		free(w->definition);
@@ -479,7 +483,7 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 	dirmeta* curr = calloc(1, sizeof(dirmeta));
 	curr->parent_dir = d->dir_id;
 	curr->dir_id = next;
-	curr->src_path = path;
+	curr->src_path = duplicate_path(path);
 	metalist* m = calloc(1, sizeof(metalist));
 	m->magic = 0x80;
 	m->metadata = curr;
