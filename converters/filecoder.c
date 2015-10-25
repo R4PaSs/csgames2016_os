@@ -152,11 +152,12 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size)
 {
 	memset(extent, 0, ext_size * 512);
 	extent[0] = 0x40;
-	u32le_to_be(f->parent_dir, extent + 1);
-	memcpy(extent + 5, f->filename, 50);
-	u64le_to_me(f->data_location, extent + 55);
-	u64le_to_me(f->ext_size, extent + 63);
-	u64le_to_me(f->byte_size, extent + 71);
+	u32le_to_be(f->file_id, extent + 1);
+	u32le_to_be(f->parent_dir, extent + 5);
+	memcpy(extent + 9, f->filename, 50);
+	u64le_to_me(f->data_location, extent + 59);
+	u64le_to_me(f->ext_size, extent + 67);
+	u64le_to_me(f->byte_size, extent + 75);
 	fwrite(extent, 1, ext_size * 512, out);
 }
 
@@ -272,7 +273,7 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 			u32le_to_be(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
 		} else if(m->magic == 0x40) {
 			extent[extpos] = 0x40;
-			u32le_to_be(((filemeta*)m->metadata)->data_location, extent + extpos + 1);
+			u32le_to_be(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
 		}
 		extpos += 5;
 		metalist* m2 = m->next;
@@ -467,7 +468,7 @@ dirmeta* build_hierarchy(char* top_path) {
 		if(S_ISDIR(s.st_mode)) {
 			next_id = add_folder_to(top_path, top, next_id);
 		} else if (S_ISREG(s.st_mode)) {
-			add_file_to(top_path, top);
+			add_file_to(top_path, top, next_id);
 		}
 	}
 	return top;
@@ -503,7 +504,7 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 			if(S_ISDIR(st.st_mode)) {
 				next = add_folder_to(s, curr, next);
 			} else if(S_ISREG(st.st_mode)) {
-				add_file_to(s, curr);
+				next = add_file_to(s, curr, next);
 			}
 		} else {
 			free(s);
@@ -515,11 +516,12 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 }
 
 // Adds file at `path` to the hierarchy of `d`
-void add_file_to(char* path, dirmeta* d) {
+int add_file_to(char* path, dirmeta* d, int next) {
 	filemeta* fm = calloc(1, sizeof(filemeta));
 	fm->parent_dir = d->dir_id;
 	fm->byte_size = in_byte_size("", path);
-	fm->src_path = path;
+	fm->src_path = duplicate_path(path);
+	fm->file_id = next;
 	char* bn = basename(path);
 	int bnln = strlen(bn);
 	if(bnln > 49) bnln = 49;
@@ -532,6 +534,15 @@ void add_file_to(char* path, dirmeta* d) {
 	}else{
 		d->children = m;
 	}
+	return next + 1;
+}
+
+// Re-allocates a path as a heap-managed entity for bugless free later
+char* duplicate_path(char* path) {
+	int ln = strlen(path);
+	char* ret = calloc(ln, sizeof(char));
+	memcpy(ret, path, ln);
+	return ret;
 }
 
 void append_meta_to_list(metalist* lst, metalist* node) {

@@ -2,6 +2,8 @@
 
 // File metadata
 typedef struct filemeta {
+	// Identifier of the file
+	uint32_t file_id;
 	// Parent directory id, unsigned 32 bits
 	uint32_t parent_dir;
 	// File name in UTF-8
@@ -105,7 +107,7 @@ int in_file_byte_size(char* parent_path, char* in);
 int in_dir_byte_size(char* parent_path, char* in_path);
 char* join(char** strings, int len, char* sep);
 dirmeta* build_hierarchy(char* top_path);
-void add_file_to(char* path, dirmeta* d);
+int add_file_to(char* path, dirmeta* d, int next);
 int add_folder_to(char* path, dirmeta* d, int next);
 uint32_t file_byte_to_extent_size(long byte_size);
 void append_meta_to_list(metalist* lst, metalist* node);
@@ -131,3 +133,4 @@ writequeue* make_filenode(filemeta* f);
 void commit_data_to_disk(writequeue* wq, FILE* out, char* extent, int ext_size);
 writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);
+char* duplicate_path(char* path);
