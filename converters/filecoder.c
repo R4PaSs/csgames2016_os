@@ -18,15 +18,17 @@ int main(int argc, char** argv)
 	char* out = parse_out(argc, argv);
 	int ext_sz = parse_ext(argc, argv);
 	struct stat s;
+	int ln = strlen(argv[1]);
+	char* path = calloc(1, ln + 1);
+	memcpy(path, argv[1], ln);
 	if(!stat(argv[1], &s)) {
 		if(S_ISDIR(s.st_mode) || S_ISREG(s.st_mode)) {
-			//printf("%d\n", in_byte_size(".", argv[1]));
-			make_filesystem(argv[1], out, ext_sz);
+			make_filesystem(path, out, ext_sz);
 		} else {
-			printf("Bad argument %s, expected path to a file or a directory\n", argv[1]);
+			printf("Bad argument %s, expected path to a file or a directory\n", path);
 		}
 	} else {
-		printf("Error: syscall to stat failed, are you sure %s exists ?", argv[1]);
+		printf("Error: syscall to stat failed, are you sure %s exists ?", path);
 	}
 }
 
@@ -297,12 +299,12 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 		}
 	} else {
 		writequeue* w = wq;
+		wq = wq->next;
 		free(d->src_path);
 		free(d);
 		free(dw);
 		free(w->definition);
 		free(w);
-		wq = wq->next;
 	}
 	fwrite(extent, 1, extentbtsz, out);
 	return wq;
@@ -483,7 +485,7 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 	dirmeta* curr = calloc(1, sizeof(dirmeta));
 	curr->parent_dir = d->dir_id;
 	curr->dir_id = next;
-	curr->src_path = duplicate_path(path);
+	curr->src_path = path;
 	metalist* m = calloc(1, sizeof(metalist));
 	m->magic = 0x80;
 	m->metadata = curr;
@@ -524,7 +526,7 @@ int add_file_to(char* path, dirmeta* d, int next) {
 	filemeta* fm = calloc(1, sizeof(filemeta));
 	fm->parent_dir = d->dir_id;
 	fm->byte_size = in_byte_size("", path);
-	fm->src_path = duplicate_path(path);
+	fm->src_path = path;
 	fm->file_id = next;
 	char* bn = basename(path);
 	int bnln = strlen(bn);
@@ -539,14 +541,6 @@ int add_file_to(char* path, dirmeta* d, int next) {
 		d->children = m;
 	}
 	return next + 1;
-}
-
-// Re-allocates a path as a heap-managed entity for bugless free later
-char* duplicate_path(char* path) {
-	int ln = strlen(path);
-	char* ret = calloc(ln, sizeof(char));
-	memcpy(ret, path, ln);
-	return ret;
 }
 
 void append_meta_to_list(metalist* lst, metalist* node) {

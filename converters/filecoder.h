@@ -133,4 +133,3 @@ writequeue* make_filenode(filemeta* f);
 void commit_data_to_disk(writequeue* wq, FILE* out, char* extent, int ext_size);
 writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_size);
-char* duplicate_path(char* path);
