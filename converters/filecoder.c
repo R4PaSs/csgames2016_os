@@ -13,12 +13,13 @@
 int main(int argc, char** argv)
 {
 	if(argc < 2){
-		printf("Usage: ./filecoder file [-o outputfile] [-e extent_size] [-s sector_size]\n");
+		printf("Usage: ./filecoder file [-o outputfile] [-e extent_size] [-s sector_size] [-c none|xor|rol key?]\n");
 		exit(1);
 	}
 	char* out = parse_out(argc, argv);
 	extent_size = parse_ext(argc, argv);
 	sector_size = parse_sec(argc, argv);
+	parse_enc(argc, argv);
 	struct stat s;
 	int ln = strlen(argv[1]);
 	char* path = calloc(1, ln + 1);
@@ -34,6 +35,24 @@ int main(int argc, char** argv)
 		printf("Error: syscall to stat failed, are you sure %s exists ?", path);
 		free(path);
 	}
+}
+
+// Parse the encryption method of the data
+void parse_enc(int argc, char** argv)
+{
+	int i;
+	for(i = 0; i < (argc - 1); i++) {
+		if(!strcmp(argv[i], "xor")) {
+			encryption = 0x80;
+			xor_key = argv[i + 1];
+			return;
+		} else if(!strcmp(argv[i], "rol")) {
+			encryption = 0x40;
+			rol_len = atoi(argv[i + 1]) % 8;
+			return;
+		}
+	}
+	encryption = 0x00;
 }
 
 // Checks if option '-o' is used, defaults to "out"
@@ -70,6 +89,36 @@ int parse_sec(int argc, char** argv)
 		}
 	}
 	return 512;
+}
+
+// Encrypts an extent using either ROL or XOR
+void encrypt_extent(char* extent)
+{
+	if(encryption == 0x80)
+		xor_extent(extent);
+	if(encryption == 0x40)
+		rol_extent(extent);
+}
+
+// Does a ROL on every byte of the extent
+void rol_extent(char* extent)
+{
+	int i;
+	int ext_sz = extent_size * sector_size;
+	for(i = 0; i < ext_sz; i++) {
+		extent[i] = (extent[i] << rol_len) | (extent[i] >> (8 - rol_len));
+	}
+}
+
+// XOR each byte of an extent with a char of the key
+void xor_extent(char* extent)
+{
+	int keylen = strlen(xor_key);
+	int i;
+	int ext_sz = extent_size * sector_size;
+	for(i = 0; i < ext_sz; i++) {
+		extent[i] = extent[i] ^ xor_key[i % keylen];
+	}
 }
 
 // Makes the filesystem from the files or directories a
@@ -153,6 +202,7 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent)
 	u32le_to_be(d->parent_dir, extent + 5);
 	memcpy(extent + 9, d->dir_name, 50);
 	u64le_to_be(d->data_location, extent + 59);
+	encrypt_extent(extent);
 	fwrite(extent, 1, extent_size * sector_size, out);
 	metalist* m = d->children;
 	while(m != NULL) {
@@ -179,6 +229,7 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent)
 	u64le_to_me(f->data_location, extent + 59);
 	u64le_to_me(f->ext_size, extent + 67);
 	u64le_to_me(f->byte_size, extent + 75);
+	encrypt_extent(extent);
 	fwrite(extent, 1, extent_size * sector_size, out);
 }
 
@@ -345,6 +396,7 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		free(w->definition);
 		free(w);
 	}
+	encrypt_extent(extent);
 	fwrite(extent, 1, extentbtsz, out);
 	return wq;
 }
@@ -376,6 +428,7 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		if(wq->next == NULL) {
 			wq->definition->next_extent += 1;
 			u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 5);
+			encrypt_extent(extent);
 			fwrite(extent, 1, extentbtsz, out);
 			return wq;
 		}
@@ -400,6 +453,7 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		free(w->definition);
 		free(w);
 	}
+	encrypt_extent(extent);
 	fwrite(extent, 1, extentbtsz, out);
 	return wq;
 }

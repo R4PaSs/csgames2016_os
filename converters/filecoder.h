@@ -6,6 +6,15 @@ static int sector_size;
 // Size of an extent (default to 8 sectors)
 static int extent_size;
 
+// Encryption method
+static int encryption;
+
+// Key for XOR
+static char* xor_key;
+
+// Bytes to ROL
+static int rol_len;
+
 // File metadata
 typedef struct filemeta {
 	// Identifier of the file
@@ -108,6 +117,7 @@ typedef struct writequeue {
 char* parse_out(int argc, char** argv);
 int parse_ext(int argc, char** argv);
 int parse_sec(int argc, char** argv);
+void parse_enc(int argc, char** argv);
 void make_filesystem(char* root_path, char* out_path);
 int in_byte_size(char* parent_path, char* inpath);
 int in_file_byte_size(char* parent_path, char* in);
@@ -141,3 +151,6 @@ void commit_data_to_disk(writequeue* wq, FILE* out, char* extent);
 writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent);
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent);
 void debug_writequeue(writequeue* w);
+void rol_extent(char* extent);
+void xor_extent(char* extent);
+void encrypt_extent(char* extent);
