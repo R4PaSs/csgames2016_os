@@ -7,6 +7,8 @@ static int sector_size;
 static int extent_size;
 
 // Encryption method
+// 0x40 for XOR
+// 0x80 for ROLx
 static int encryption;
 
 // Key for XOR

@@ -43,11 +43,16 @@ void parse_enc(int argc, char** argv)
 	int i;
 	for(i = 0; i < (argc - 1); i++) {
 		if(!strcmp(argv[i], "xor")) {
-			encryption = 0x80;
-			xor_key = argv[i + 1];
+			encryption = 0x40;
+			int keyln = strlen(argv[i + 1]);
+			if(keyln > 255) {
+				keyln = 255;
+			}
+			xor_key = calloc(1, keyln + 1);
+			memcpy(xor_key, argv[i + 1], keyln);
 			return;
 		} else if(!strcmp(argv[i], "rol")) {
-			encryption = 0x40;
+			encryption = 0x80;
 			rol_len = atoi(argv[i + 1]) % 8;
 			return;
 		}
@@ -94,9 +99,9 @@ int parse_sec(int argc, char** argv)
 // Encrypts an extent using either ROL or XOR
 void encrypt_extent(char* extent)
 {
-	if(encryption == 0x80)
-		xor_extent(extent);
 	if(encryption == 0x40)
+		xor_extent(extent);
+	if(encryption == 0x80)
 		rol_extent(extent);
 }
 
@@ -184,10 +189,13 @@ void write_fs_info(filepart* fs, FILE* out)
 	extent[8] = fs->ext_size;
 	memcpy(extent + 9, fs->name, 40);
 	u64le_to_be(fs->file_hierarchy_sz, extent + 49);
-	extent[57] = fs->data_enc;
-	if(fs->data_enc == 0x40) {
-		extent[58] = fs->masklen;
-		memcpy(extent + 59, fs->mask, fs->masklen);
+	extent[57] = encryption;
+	if(encryption == 0x40) {
+		int keyln = strlen(xor_key);
+		extent[58] = keyln;
+		memcpy(extent + 59, xor_key, keyln);
+	} else if(encryption == 0x80) {
+		extent[57] |= rol_len;
 	}
 	fwrite(extent, 1, ext_bytesz, out);
 	free(extent);
