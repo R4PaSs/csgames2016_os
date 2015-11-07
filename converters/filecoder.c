@@ -13,25 +13,27 @@
 int main(int argc, char** argv)
 {
 	if(argc < 2){
-		printf("Usage: ./filecoder file [-o outputfile] [-e extent_size]\n");
+		printf("Usage: ./filecoder file [-o outputfile] [-e extent_size] [-s sector_size]\n");
 		exit(1);
 	}
 	char* out = parse_out(argc, argv);
-	int ext_sz = parse_ext(argc, argv);
+	extent_size = parse_ext(argc, argv);
+	sector_size = parse_sec(argc, argv);
 	struct stat s;
 	int ln = strlen(argv[1]);
 	char* path = calloc(1, ln + 1);
 	memcpy(path, argv[1], ln);
 	if(!stat(argv[1], &s)) {
 		if(S_ISDIR(s.st_mode) || S_ISREG(s.st_mode)) {
-			make_filesystem(path, out, ext_sz);
+			make_filesystem(path, out);
 		} else {
 			printf("Bad argument %s, expected path to a file or a directory\n", path);
+			free(path);
 		}
 	} else {
 		printf("Error: syscall to stat failed, are you sure %s exists ?", path);
+		free(path);
 	}
-	free(path);
 }
 
 // Checks if option '-o' is used, defaults to "out"
@@ -58,26 +60,40 @@ int parse_ext(int argc, char** argv)
 	return 8;
 }
 
+// Checks if option '-s' is used, defaults to 512
+int parse_sec(int argc, char** argv)
+{
+	int i = 0;
+	for(i = 1; i < (argc - 1); i++) {
+		if(!strcmp(argv[i], "-s")) {
+			return atoi(argv[i + 1]);
+		}
+	}
+	return 512;
+}
+
 // Makes the filesystem from the files or directories a
 // `root_path` and outputs the binary data to `out_path`
-void make_filesystem(char* root_path, char* out_path, int extent_size)
+void make_filesystem(char* root_path, char* out_path)
 {
 	int byte_size = in_byte_size(".", root_path);
 	dirmeta* top = build_hierarchy(root_path);
-	write_fs_to(top, out_path, extent_size);
+	write_fs_to(top, out_path);
 }
 
 // Assign data start extents to each entity in hierarchy
 uint32_t assign_start_ext_to_meta(dirmeta* d, uint32_t from)
 {
+	//printf("Assigning start extent %d to directory %s\n", from, d->src_path);
 	d->data_location = from;
 	uint32_t nxt = from + 1;
 	metalist* m = d->children;
 	while(m != NULL) {
 		if(m->magic == 0x80) {
-			nxt += assign_start_ext_to_meta((dirmeta*)m->metadata, nxt);
+			nxt = assign_start_ext_to_meta((dirmeta*)m->metadata, nxt);
 		} else if(m->magic == 0x40) {
 			((filemeta*) m->metadata)->data_location = nxt;
+			//printf("Assigning start extent %d to file %s\n", nxt, ((filemeta*)m->metadata)->src_path);
 			nxt += 1;
 		} else {
 			printf("Fatal error: item not a directory or file in file hierarchy.\n");
@@ -89,22 +105,22 @@ uint32_t assign_start_ext_to_meta(dirmeta* d, uint32_t from)
 }
 
 // Write file system to `path`
-void write_fs_to(dirmeta* d, char* path, int extent_size)
+void write_fs_to(dirmeta* d, char* path)
 {
 	filepart* fs = calloc(1, sizeof(filepart));
 	fs->ext_size = extent_size;
 	memmove(fs->name, "test.coal", strlen("test.coal"));
 	fs->file_hierarchy_sz = hierarchy_size(d);
 	fs->data_enc = 0x00;
-	int data_sz = data_size(d, extent_size);
+	int data_sz = data_size(d);
 	fs->size_of_the_volume = data_sz + fs->file_hierarchy_sz + 1;
 	FILE* fout = fopen(path, "w");
 	write_fs_info(fs, fout);
-	char* ext = malloc(extent_size * 512);
+	char* ext = malloc(extent_size * sector_size);
 	assign_start_ext_to_meta(d, fs->file_hierarchy_sz);
-	write_hierarchy_to(d, fout, ext, extent_size);
+	write_hierarchy_to(d, fout, ext);
 	writequeue* w = build_writequeue(d);
-	commit_data_to_disk(w, fout, ext, extent_size);
+	commit_data_to_disk(w, fout, ext);
 	free(ext);
 	free(fs);
 	fclose(fout);
@@ -113,7 +129,7 @@ void write_fs_to(dirmeta* d, char* path, int extent_size)
 // Write first extent to `out`
 void write_fs_info(filepart* fs, FILE* out)
 {
-	int ext_bytesz = fs->ext_size * 512;
+	int ext_bytesz = fs->ext_size * sector_size;
 	char* extent = calloc(1, ext_bytesz);
 	u64le_to_me(fs->size_of_the_volume, extent);
 	extent[8] = fs->ext_size;
@@ -129,21 +145,21 @@ void write_fs_info(filepart* fs, FILE* out)
 }
 
 // Write metadata to `out`, `extent` is used as a temporary buffer to store data
-void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size)
+void write_hierarchy_to(dirmeta* d, FILE* out, char* extent)
 {
-	memset(extent, 0, ext_size * 512);
+	memset(extent, 0, extent_size * sector_size);
 	extent[0] = 0x80;
 	u32le_to_be(d->dir_id, extent + 1);
 	u32le_to_be(d->parent_dir, extent + 5);
 	memcpy(extent + 9, d->dir_name, 50);
 	u64le_to_be(d->data_location, extent + 59);
-	fwrite(extent, 1, ext_size * 512, out);
+	fwrite(extent, 1, extent_size * sector_size, out);
 	metalist* m = d->children;
 	while(m != NULL) {
 		if(m->magic == 0x80) {
-			write_hierarchy_to((dirmeta*)m->metadata, out, extent, ext_size);
+			write_hierarchy_to((dirmeta*)m->metadata, out, extent);
 		} else if(m->magic == 0x40) {
-			write_filemeta_to((filemeta*)m->metadata, out, extent, ext_size);
+			write_filemeta_to((filemeta*)m->metadata, out, extent);
 		} else {
 			printf("Error while writing directory meta, found invalid child\n");
 			exit(-1);
@@ -153,9 +169,9 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent, int ext_size)
 }
 
 // Write a file's metadata to `out`, `extent` is used as a temporary buffer to store data
-void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size)
+void write_filemeta_to(filemeta* f, FILE* out, char* extent)
 {
-	memset(extent, 0, ext_size * 512);
+	memset(extent, 0, extent_size * sector_size);
 	extent[0] = 0x40;
 	u32le_to_be(f->file_id, extent + 1);
 	u32le_to_be(f->parent_dir, extent + 5);
@@ -163,7 +179,7 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent, int ext_size)
 	u64le_to_me(f->data_location, extent + 59);
 	u64le_to_me(f->ext_size, extent + 67);
 	u64le_to_me(f->byte_size, extent + 75);
-	fwrite(extent, 1, ext_size * 512, out);
+	fwrite(extent, 1, extent_size * sector_size, out);
 }
 
 // Builds a write queue for the data
@@ -239,23 +255,46 @@ void append_to_writequeue(writequeue* lst, writequeue* node)
 	lst->next = node;
 }
 
-// Writes the contents of queue `wq` to disk
-void commit_data_to_disk(writequeue* wq, FILE* out, char* extent, int ext_size)
+// Prints the content of a writequeue; for debugging purposes only
+void debug_writequeue(writequeue* w)
 {
+	printf("In queue: \n");
+	while(w != NULL) {
+		char* s;
+		char* path;
+		if(w->definition->magic == 0x80) {
+			s = "directory";
+			path = ((dirwrite*)w->definition->meta)->dir->src_path;
+		} else {
+			s = "file";
+			path = ((filewrite*)w->definition->meta)->metadata->src_path;
+		}
+		printf("%s %s: next extent = %d\n", s, path, w->definition->next_extent);
+		w = w->next;
+	}
+}
+
+// Writes the contents of queue `wq` to disk
+void commit_data_to_disk(writequeue* wq, FILE* out, char* extent)
+{
+	//printf("Start commiting data to disk\n");
+	//debug_writequeue(wq);
 	while(wq != NULL) {
 		if(wq->definition->magic == 0x80) {
-			wq = write_dir_chunk(wq, out, extent, ext_size);
+			wq = write_dir_chunk(wq, out, extent);
 		} else if(wq->definition->magic == 0x40) {
-			wq = write_file_chunk(wq, out, extent, ext_size);
+			wq = write_file_chunk(wq, out, extent);
 		}
 	}	
 }
 
 // Writes a chunk of data for the directory in `wq`
-writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_size)
+writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 {
+	//printf("Writing directory chunk to disk\n");
+	//debug_writequeue(wq);
 	int extpos = 0;
-	int extentbtsz = ext_size * 512;
+	int extentbtsz = extent_size * sector_size;
 	memset(extent, 0, extentbtsz);
 	dirwrite* dw = wq->definition->meta;
 	dirmeta* d = dw->dir;
@@ -273,11 +312,10 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 	int i;
 	int entries = (extentbtsz - extpos - 4) / 5;
 	for(i = 0; i < entries; i++) {
+		extent[extpos] = m->magic;
 		if(m->magic = 0x80) {
-			extent[extpos] = 0x80;
 			u32le_to_be(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
 		} else if(m->magic == 0x40) {
-			extent[extpos] = 0x40;
 			u32le_to_be(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
 		}
 		extpos += 5;
@@ -298,6 +336,7 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 			wq = w;
 		}
 	} else {
+		//printf("Freeing directory path %s at address %p\n", d->src_path, d->src_path);
 		writequeue* w = wq;
 		wq = wq->next;
 		free(d->src_path);
@@ -311,9 +350,11 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent, int ext_siz
 }
 
 // Writes a chunk of data for the file in `wq`
-writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_size)
+writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 {
-	int extentbtsz = ext_size * 512;
+	//printf("Writing file chunk to disk\n");
+	//debug_writequeue(wq);
+	int extentbtsz = extent_size * sector_size;
 	int maxdata = extentbtsz - 9;
 	memset(extent, 0, extentbtsz);
 	writedef* wd = wq->definition;
@@ -332,18 +373,24 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent, int ext_si
 	int rd = fread(extent + 5, 1, maxdata, fw->src);
 	fw->remaining -= rd;
 	if(fw->remaining > 0) {
-		writequeue* w = wq;
-		while(w->next != NULL) w = w->next;
-		int nxt = w->definition->next_extent + 1;
-		wq = w->next;
-		w->definition->next_extent = nxt;
-		if(wq != NULL) {
-			append_to_writequeue(w, wq);
-		} else {
-			wq = w;
+		if(wq->next == NULL) {
+			wq->definition->next_extent += 1;
+			u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 5);
+			fwrite(extent, 1, extentbtsz, out);
+			return wq;
 		}
+		//printf("Remaining space for file %s: %d\n", fm->src_path, fw->remaining);
+		writequeue* w = wq;
+		wq = wq->next;
+		w->next = NULL;
+		writequeue* lst = wq;
+		while(lst->next != NULL) lst = lst->next;
+		lst->next = w;
+		int nxt = lst->definition->next_extent + 1;
+		w->definition->next_extent = nxt;
 		u32le_to_be(nxt, extent + extentbtsz - 5);
 	} else {
+		//printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
 		writequeue* w = wq;
 		wq = w->next;
 		fclose(fw->src);
@@ -419,11 +466,11 @@ void u64le_to_be(uint64_t data, char* buf)
 }
 
 // Computes the size of the data in extents
-int data_size(dirmeta* d, int extent_size)
+int data_size(dirmeta* d)
 {
 	int extents = 0;
 	metalist* m = d->children;
-	int ext_byte_size = extent_size * 512;
+	int ext_byte_size = extent_size * sector_size;
 	int fl_data_chunk_sz = ext_byte_size - 1 - 4 - 4;
 	int dir_data_chunk_sz = ext_byte_size - 4 - 6 - 6 - 4;
 	int children = 0;
@@ -437,7 +484,7 @@ int data_size(dirmeta* d, int extent_size)
 			extents += flextents;
 			f->byte_size = flsz;
 		} else if (m->magic == 0x80) {
-			extents += data_size((dirmeta*)m->metadata, extent_size);
+			extents += data_size((dirmeta*)m->metadata);
 		}
 		children += 1;
 		m = m->next;
@@ -543,6 +590,7 @@ int add_file_to(char* path, dirmeta* d, int next) {
 	return next + 1;
 }
 
+// Add metadata to list
 void append_meta_to_list(metalist* lst, metalist* node) {
 	metalist* lnk = lst;
 	while(lnk->next != NULL) {
@@ -551,7 +599,7 @@ void append_meta_to_list(metalist* lst, metalist* node) {
 	lnk->next = node;
 }
 
-
+// Computes the size in bytes of `parent_path/inpath`
 int in_byte_size(char* parent_path, char*inpath)
 {
 	struct stat s;
@@ -566,20 +614,24 @@ int in_byte_size(char* parent_path, char*inpath)
 	}
 }
 
+// Gets the byte size of a file
 int in_file_byte_size(char* parent_path, char* in_path)
 {
 	char* ss[] = {parent_path, in_path};
 	char* path = join(ss, 2, "/");
 	int f = open(path, O_RDONLY);
+	if(f == -1)
+		return 0;
 	struct stat s;
 	if(!fstat(f, &s)) {
 		return s.st_size;
 	}
-	free(path);
 	close(f);
+	free(path);
 	return 0;
 }
 
+// Computes the size of a directory's elements
 int in_dir_byte_size(char* parent_path, char* in_path)
 {
 	int size = 0;
@@ -594,8 +646,8 @@ int in_dir_byte_size(char* parent_path, char* in_path)
 	struct stat s;
 	while(dent != NULL) {
 		char* file = dent->d_name;
-		char* strs[] = {parent_path, in_path, file};
-		char* path = join(strs, 3, "/");
+		char* strs[] = {in_path, file};
+		char* path = join(strs, 2, "/");
 		if(strcmp(file, ".") && strcmp(file, "..") && !stat(path, &s)){
 			if(S_ISDIR(s.st_mode) || S_ISREG(s.st_mode)){
 				size += in_byte_size(parent_path, path);
@@ -625,5 +677,6 @@ char* join(char** strings, int len, char* sep)
 		strcat(endstr, sep);
 		strcat(endstr, strings[i]);
 	}
+	//printf("Allocating path at address %p\n", endstr);
 	return endstr;
 }
