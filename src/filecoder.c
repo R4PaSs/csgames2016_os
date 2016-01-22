@@ -216,6 +216,7 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent)
 {
 	memset(extent, 0, extent_size * sector_size);
 	extent[0] = 0x40;
+	printf("Writing file meta, ID = %d, parent ID = %d\n", f->file_id, f->parent_dir);
 	u32le_to_be(f->file_id, extent + 1);
 	u32le_to_be(f->parent_dir, extent + 5);
 	memcpy(extent + 9, f->filename, 50);

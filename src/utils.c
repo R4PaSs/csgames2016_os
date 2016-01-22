@@ -88,8 +88,8 @@ uint64_t u64be_to_le(char* b)
 {
 	uint64_t ret = 0x00;
 	int i;
-	for(i = 0; i < 16; i ++) {
-		ret |= ((uint64_t)b[i]) << ((15 - i) * 8);
+	for(i = 0; i < 8; i ++) {
+		ret |= ((uint64_t)b[i]) << ((7 - i) * 8);
 	}
 	return ret;
 }
@@ -109,8 +109,8 @@ uint32_t u32be_to_le(char* b)
 {
 	uint32_t ret = 0;
 	int i;
-	for(i = 0; i < 8; i++) {
-		ret |= ((uint32_t)b[i]) * ((7 - i) * 8);
+	for(i = 0; i < 4; i++) {
+		ret |= ((uint32_t)b[i]) << ((3 - i) * 8);
 	}
 	return ret;
 }
@@ -129,8 +129,8 @@ uint16_t u16be_to_le(char* b)
 {
 	uint16_t ret;
 	int i;
-	for(i = 0; i < 4; i++) {
-		ret |= ((uint16_t)b[i]) << ((3 - i) * 8);
+	for(i = 0; i < 2; i++) {
+		ret |= ((uint16_t)b[i]) << ((1 - i) * 8);
 	}
 	return ret;
 }
