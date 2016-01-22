@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include "utils.h"
 #include "filecoder.h"
 #include <dirent.h>
 #include <string.h>
@@ -60,17 +61,6 @@ void parse_enc(int argc, char** argv)
 	encryption = 0x00;
 }
 
-// Checks if option '-o' is used, defaults to "out"
-char* parse_out(int argc, char** argv)
-{
-	int i;
-	for(i = 1; i < (argc - 1); i++) {
-		if(!strcmp(argv[i], "-o")){
-			return argv[i + 1];
-		}
-	}
-	return "out.coal";
-}
 
 // Checks if option '-e' is used, defaults to 8
 int parse_ext(int argc, char** argv)
@@ -82,18 +72,6 @@ int parse_ext(int argc, char** argv)
 		}
 	}
 	return 8;
-}
-
-// Checks if option '-s' is used, defaults to 512
-int parse_sec(int argc, char** argv)
-{
-	int i = 0;
-	for(i = 1; i < (argc - 1); i++) {
-		if(!strcmp(argv[i], "-s")) {
-			return atoi(argv[i + 1]);
-		}
-	}
-	return 512;
 }
 
 // Encrypts an extent using either ROL or XOR
@@ -188,10 +166,17 @@ void write_fs_info(filepart* fs, FILE* out)
 	u64le_to_me(fs->size_of_the_volume, extent);
 	extent[8] = fs->ext_size;
 	memcpy(extent + 9, fs->name, 40);
+	printf("File hierarchy size: %lu\n", fs->file_hierarchy_sz);
 	u64le_to_be(fs->file_hierarchy_sz, extent + 49);
+	int i;
+	printf("0x");
+	for(i = 0; i < 8; i ++)
+		printf("%2x", ((unsigned char) extent[i + 49]));
+	printf("\n");
 	extent[57] = encryption;
 	if(encryption == 0x40) {
-		int keyln = strlen(xor_key);
+		printf("XOR encryption: keyln = %ld, keycontent = \"%s\"\n", strlen(xor_key), xor_key);
+		char keyln = strlen(xor_key);
 		extent[58] = keyln;
 		memcpy(extent + 59, xor_key, keyln);
 	} else if(encryption == 0x80) {
@@ -478,55 +463,6 @@ int count_children(dirmeta* d)
 	return children;
 }
 
-// Write the 16 bits of `data` to `buffer` in big-endian form
-void u16le_to_be(uint16_t data, char* buffer) {
-	int i = 0;
-	uint8_t d;
-	for(i = 0; i < 2; i++) {
-		d = (data & (0xFFl << (2 * i))) >> (2 * i);
-		buffer[1 - i] = d;
-	}
-}
-
-// Write the 32 bits of `data` to `buffer` in big-endian form
-void u32le_to_be(uint32_t data, char* buffer) {
-	int i = 0;
-	uint8_t d;
-	for(i = 0; i < 4; i++) {
-		d = (data & (0xFFl << (4 * i))) >> (4 * i);
-		buffer[3 - i] = d;
-	}
-}
-
-// Write the 32 bits of `data` to `buffer` in middle-endian form
-void u32le_to_me(uint32_t data, char* buffer)
-{
-	uint16_t p1 = (data & 0xFFFF0000) >> 16;
-	memcpy(buffer, &p1, 2);
-	p1 = data & 0xFFFF;
-	memcpy(buffer + 2, &p1, 2);
-}
-
-// Write the 64 bits of `data` to `buffer` in middle-endian form
-void u64le_to_me(uint64_t data, char* buffer)
-{
-	uint32_t p1 = (data & 0xFFFFFFFF00000000) >> 32;
-	memcpy(buffer, &p1, 4);
-	p1 = data & 0xFFFFFFFF;
-	memcpy(buffer + 4, &p1, 4);
-}
-
-// Write the 64 bits of `data` to `buf` in big-endian form
-void u64le_to_be(uint64_t data, char* buf)
-{
-	int i = 0;
-	uint8_t d;
-	for(i = 0; i < 8; i++) {
-		d = (data & (0xFFl << (8 * i))) >> (8 * i);
-		buf[7 - i] = d;
-	}
-}
-
 // Computes the size of the data in extents
 int data_size(dirmeta* d)
 {
@@ -721,24 +657,4 @@ int in_dir_byte_size(char* parent_path, char* in_path)
 	closedir(d);
 	free(dirpath);
 	return size;
-}
-
-// Joins an array of strings using `sep`
-char* join(char** strings, int len, char* sep)
-{
-	int i;
-	if(len == 0) return "";
-	int endlen = 0;
-	for(i = 0; i < len; i++) {
-		endlen += strlen(strings[i]);
-	}
-	endlen += strlen(sep) * (len - 1);
-	char* endstr = calloc(endlen + 1, 1);
-	strcat(endstr, strings[0]);
-	for(i = 1; i < len; i++) {
-		strcat(endstr, sep);
-		strcat(endstr, strings[i]);
-	}
-	//printf("Allocating path at address %p\n", endstr);
-	return endstr;
 }

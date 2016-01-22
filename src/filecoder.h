@@ -45,7 +45,7 @@ typedef struct filepart {
 	char version[7];
 	// Name of the volume
 	char name[40];
-	// Size of the file_hierarchy
+	// Size of the file_hierarchy (in extents)
 	uint64_t file_hierarchy_sz;
 	// Type of encoding for the data
 	char data_enc;
@@ -116,15 +116,13 @@ typedef struct writequeue {
 	writequeue* next;
 } writequeue;
 
-char* parse_out(int argc, char** argv);
+
 int parse_ext(int argc, char** argv);
-int parse_sec(int argc, char** argv);
 void parse_enc(int argc, char** argv);
 void make_filesystem(char* root_path, char* out_path);
 int in_byte_size(char* parent_path, char* inpath);
 int in_file_byte_size(char* parent_path, char* in);
 int in_dir_byte_size(char* parent_path, char* in_path);
-char* join(char** strings, int len, char* sep);
 dirmeta* build_hierarchy(char* top_path);
 int add_file_to(char* path, dirmeta* d, int next);
 int add_folder_to(char* path, dirmeta* d, int next);
@@ -136,11 +134,6 @@ int data_size(dirmeta* d);
 void write_fs_info(filepart* fs, FILE* out);
 void write_hierarchy_to(dirmeta* d, FILE* out, char* extent);
 void write_filemeta_to(filemeta* f, FILE* out, char* extent);
-void u64le_to_be(uint64_t data, char* b);
-void u64le_to_me(uint64_t data, char* b);
-void u32le_to_be(uint32_t data, char* b);
-void u32le_to_me(uint32_t data, char* b);
-void u16le_to_be(uint16_t data, char* b);
 int count_children(dirmeta* d);
 int write_dirdata_to(dirmeta* d, FILE* out, char* extent, int current_ext, int next_cont);
 int write_filedata_to(filemeta* f, FILE* out, char* extent, int current_ext, int next_cont);
