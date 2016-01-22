@@ -26,10 +26,11 @@ typedef struct file_meta {
 	uint64_t byte_size;
 } file_meta;
 
+typedef struct directory directory;
 typedef struct directory {
 	dir_meta* meta;
 	int children_dirs_nb;
-	dir_meta** children_dirs;
+	directory** children_dirs;
 	int children_files_nb;
 	file_meta** children_files;
 } directory;
@@ -38,5 +39,8 @@ void parse_filesystem(char *inpath, char* outpath);
 partition* parse_part_info(FILE *in);
 void add_child_dir_to_dir(dir_meta*, directory*);
 void add_child_file_to_dir(file_meta*, directory*);
+dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta);
 //Debug function, prints the contents of `part`
 void dump_partition(partition *part);
+void move_to_extent(FILE* in, uint64_t extent_id, partition* meta);
+directory* find_dir_id(uint32_t id, directory* dir);

@@ -44,10 +44,9 @@ void parse_filesystem(char *inpath, char* outpath)
 	FILE* in = fopen(inpath, "r");
 	partition* part = parse_part_info(in);
 	dump_partition(part);
-	fclose(in);
-	in = fopen(inpath, "r");
 	// Forward to file hierarchy
-	fseek(in, part->ext_size * sector_size, SEEK_SET);
+	move_to_extent(in, 1, part);
+	dir_meta* dirs = parse_file_hierarchy(in, part);
 }
 
 partition* parse_part_info(FILE *in)
@@ -72,22 +71,52 @@ partition* parse_part_info(FILE *in)
 	return ret;
 }
 
-dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta) {
+dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta)
+{
 	char* ext = malloc(fsmeta->ext_size * sector_size);
 	fread(ext, fsmeta->ext_size, sector_size, in);
 	if(ext[0] != 0x00) {
 		printf("Error: First entity in file hierarchy must be a root directory with 0 as ID.\n");
 		exit(-2);
 	}
+	dir_meta *root = malloc(sizeof(dir_meta));
+	root->name = "root";
+	root->id = 0;
+	root->parent_id = 0;
+	root->ext_location = 1;
+}
+
+void move_to_extent(FILE* in, uint64_t extent_id, partition* meta)
+{
+	fseek(in, meta->ext_size * sector_size * extent_id, SEEK_SET);
+}
+
+directory* find_dir_id(uint32_t id, directory* dir)
+{
+	int i = 0;
+	for(i = 0; i < dir->children_dirs_nb; i++){
+		directory* dirdir = dir->children_dirs[i];
+		dir_meta* dirmet = dirdir->meta;
+		if(dirmet->id == id)
+			return dirdir;
+		directory* retdir = find_dir_id(id, dirdir);
+		if(retdir != NULL)
+			return retdir;
+	}
+	return NULL;
 }
 
 void add_child_dir_to_dir(dir_meta* meta, directory* dir)
 {
 	int sz = ++dir->children_dirs_nb;
-	dir_meta** ndirs = malloc(sz * sizeof(void*));
-	memcpy(ndirs, dir->children_dirs, (sz - 1) * sizeof(void*));
-	ndirs[sz - 1] = meta;
-	free(dir->children_dirs);
+	directory* ndir = calloc(sizeof(directory), 1);
+	ndir->meta = meta;
+	directory** ndirs = malloc(sz * sizeof(void*));
+	if(sz > 1) {
+		free(dir->children_dirs);
+		memcpy(ndirs, dir->children_dirs, (sz - 1) * sizeof(void*));
+	}
+	ndirs[sz - 1] = ndir;
 	dir->children_dirs = ndirs;
 }
 
