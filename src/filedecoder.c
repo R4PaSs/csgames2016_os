@@ -73,9 +73,13 @@ partition* parse_part_info(FILE *in)
 
 dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta)
 {
-	char* ext = malloc(fsmeta->ext_size * sector_size);
+	unsigned char* ext = malloc(fsmeta->ext_size * sector_size);
 	fread(ext, fsmeta->ext_size, sector_size, in);
-	if(ext[0] != 0x00) {
+	if(ext[0] != 0x80) {
+		printf("Error: Top entity is not a directory !\n");
+		exit(-1);
+	}
+	if(ext[1] != 0x00) {
 		printf("Error: First entity in file hierarchy must be a root directory with 0 as ID.\n");
 		exit(-2);
 	}
@@ -84,6 +88,46 @@ dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta)
 	root->id = 0;
 	root->parent_id = 0;
 	root->ext_location = 1;
+	directory* rootdir = calloc(sizeof(directory), 1);
+	int i;
+	for(i = 0; i < (fsmeta->hierarchy_size - 1); i++) {
+		move_to_extent(in, i + 2, fsmeta);
+		fread(ext, fsmeta->ext_size, sector_size, in);
+		if(ext[0] == 0x40) {
+			file_meta* fm = read_file_info(ext);
+			dump_filemeta(fm);
+		} else if(ext[0] == 0x80) {
+			dir_meta* dm = read_folder_info(ext);
+			dump_dirmeta(dm);
+		} else {
+			printf("Bad data chunk.\n");
+			exit(-3);
+		}
+	}
+}
+
+dir_meta* read_folder_info(unsigned char* ext)
+{
+	dir_meta* ret = malloc(sizeof(dir_meta));
+	ret->id = u32be_to_le(ext + 1);
+	ret->parent_id = u32be_to_le(ext + 5);
+	ret->name = calloc(50, 1);
+	memcpy(ret->name, ext+9, 50);
+	ret->ext_location = u64me_to_le(ext + 59);
+	return ret;
+}
+
+file_meta* read_file_info(unsigned char* ext)
+{
+	file_meta* ret = malloc(sizeof(file_meta));
+	ret->id = u32be_to_le(ext + 1);
+	ret->parent_id = u32be_to_le(ext + 5);
+	ret->name = calloc(50, 1);
+	memcpy(ret->name, ext + 9, 50);
+	ret->ext_location = u64me_to_le(ext + 59);
+	ret->ext_size = u64me_to_le(ext + 67);
+	ret->byte_size = u64me_to_le(ext + 75);
+	return ret;
 }
 
 void move_to_extent(FILE* in, uint64_t extent_id, partition* meta)
@@ -156,4 +200,24 @@ void dump_partition(partition* part) {
 	} else if (encryption == 0x80) {
 		printf("- encryption mask: %d\n", part->encryption_type & 0x0F);
 	}
+}
+
+void dump_dirmeta(dir_meta *dir)
+{
+	printf("Dir meta dump:\n");
+	printf("- ID: %d\n", dir->id);
+	printf("- Parent ID: %d\n", dir->parent_id);
+	printf("- Name: %s\n", dir->name);
+	printf("- Extent: %ld\n", dir->ext_location);
+}
+
+void dump_filemeta(file_meta *file)
+{
+	printf("File meta dump:\n");
+	printf("- ID: %d\n", file->id);
+	printf("- Parent ID: %d\n", file->parent_id);
+	printf("- Name: %s\n", file->name);
+	printf("- Extent: %ld\n", file->ext_location);
+	printf("- Extent Size: %ld\n", file->ext_size);
+	printf("- Byte Size: %ld\n", file->byte_size);
 }
