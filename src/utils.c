@@ -20,7 +20,7 @@ void u16le_to_be(uint16_t data, char* buffer) {
 	int i = 0;
 	uint8_t d;
 	for(i = 0; i < 2; i++) {
-		d = (data & (0xFFl << (2 * i))) >> (2 * i);
+		d = (data & (0xFFl << (8 * i))) >> (8 * i);
 		buffer[1 - i] = d;
 	}
 }
@@ -30,7 +30,7 @@ void u32le_to_be(uint32_t data, char* buffer) {
 	int i = 0;
 	uint8_t d;
 	for(i = 0; i < 4; i++) {
-		d = (data & (0xFFl << (4 * i))) >> (4 * i);
+		d = (data & (0xFFl << (8 * i))) >> (8 * i);
 		buffer[3 - i] = d;
 	}
 }
