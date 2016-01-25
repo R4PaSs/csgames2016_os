@@ -284,7 +284,7 @@ writequeue* make_filenode(filemeta* f)
 	wd->magic = 0x40;
 	filewrite* fw = calloc(1, sizeof(filewrite));
 	FILE* fr = fopen(f->src_path, "r");
-	printf("Making writenode for file %s, path is %s\n", f->filename, f->src_path);
+	printf("Making writenode for file %s, path is %s, file handle is at address %p\n", f->filename, f->src_path, fr);
 	fw->src = fr;
 	fw->remaining = in_byte_size(".", f->src_path);
 	fw->metadata = f;
@@ -413,10 +413,18 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		extent[0] = 0x00;
 	}
 	if(fw->remaining > maxdata) {
+		printf("Writing 0x%04X (%d) bytes of data for file %s\n", maxdata, maxdata, fm->filename);
 		u32le_to_me(maxdata, extent + 1);
 	} else {
+		printf("Writing 0x%04X (%d) bytes of data for file %s\n", fw->remaining, fw->remaining, fm->filename);
 		u32le_to_me(fw->remaining, extent + 1);
 	}
+	int i;
+	printf("Hexadecimal at offset is: ");
+	for(i = 0; i < 4; i ++) {
+		printf("0x%02x ", (unsigned char)*(extent + 1 + i));
+	}
+	printf("\n");
 	int rd = fread(extent + 5, 1, maxdata, fw->src);
 	fw->remaining -= rd;
 	if(fw->remaining > 0) {
@@ -438,14 +446,8 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		w->definition->next_extent = nxt;
 		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 5, nxt);
 		u32le_to_be(nxt, extent + extentbtsz - 5);
-		int i;
-		printf("Hexadecimal at offset is: ");
-		for(i = 0; i < 4; i ++) {
-			printf("0x%02x ", (unsigned char)*(extent + extentbtsz - 5 + i));
-		}
-		printf("\n");
 	} else {
-		printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
+		printf("Freeing file path %s at address %p, file handler at address %p\n", fm->src_path, fm->src_path, fw->src);
 		writequeue* w = wq;
 		wq = w->next;
 		fclose(fw->src);

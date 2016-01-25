@@ -167,18 +167,22 @@ void write_directory(FILE* in, directory* dir, partition* part, char* outpath) {
 
 void write_file(FILE* in, file_meta* fm, partition* part, char* outpath) {
 	FILE* out = fopen(outpath, "w");
+	printf("Reading extent %ld for file %s\n", fm->ext_location, fm->name);
+	int ext_id = fm->ext_location;
 	move_to_extent(in, fm->ext_location, part);
 	int ext_byte_size = part->ext_size * sector_size;
 	char* ext = malloc(ext_byte_size);
 	while(1) {
 		fread(ext, ext_byte_size, 1, in);
 		uint32_t local_size = u32me_to_le(ext + 1);
+		printf("Reading chunk of %d bytes for file %s fm->name at offset %d\n", local_size, fm->name, ext_id);
 		fwrite(ext + 5, local_size, 1, out);
 		uint32_t nxt_id = u32be_to_le(ext + ext_byte_size - 5);
 		printf("Next extent id = %d\n", nxt_id);
 		if(nxt_id == 0)
 			break;
 		move_to_extent(in, nxt_id, part);
+		ext_id = nxt_id;
 	}
 	fclose(out);
 }
