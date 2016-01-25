@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 // Checks if option '-o' is used, defaults to "out"
 char* parse_out(int argc, char** argv)
@@ -16,7 +17,7 @@ char* parse_out(int argc, char** argv)
 }
 
 // Write the 16 bits of `data` to `buffer` in big-endian form
-void u16le_to_be(uint16_t data, char* buffer) {
+void u16le_to_be(uint16_t data, unsigned char* buffer) {
 	int i = 0;
 	uint8_t d;
 	for(i = 0; i < 2; i++) {
@@ -26,17 +27,22 @@ void u16le_to_be(uint16_t data, char* buffer) {
 }
 
 // Write the 32 bits of `data` to `buffer` in big-endian form
-void u32le_to_be(uint32_t data, char* buffer) {
+void u32le_to_be(uint32_t data, unsigned char* buffer) {
 	int i = 0;
 	uint8_t d;
 	for(i = 0; i < 4; i++) {
 		d = (data & (0xFFl << (8 * i))) >> (8 * i);
 		buffer[3 - i] = d;
 	}
+	printf("Written hex for %d in BE form is ", data);
+	for(i = 0; i < 4; i ++) {
+		printf("0x%02x ", buffer[i]);
+	}
+	printf("\n");
 }
 
 // Write the 32 bits of `data` to `buffer` in middle-endian form
-void u32le_to_me(uint32_t data, char* buffer)
+void u32le_to_me(uint32_t data, unsigned char* buffer)
 {
 	uint16_t p1 = (data & 0xFFFF0000) >> 16;
 	memcpy(buffer, &p1, 2);
@@ -45,7 +51,7 @@ void u32le_to_me(uint32_t data, char* buffer)
 }
 
 // Write the 64 bits of `data` to `buffer` in middle-endian form
-void u64le_to_me(uint64_t data, char* buffer)
+void u64le_to_me(uint64_t data, unsigned char* buffer)
 {
 	uint32_t p1 = (data & 0xFFFFFFFF00000000) >> 32;
 	memcpy(buffer, &p1, 4);
@@ -54,7 +60,7 @@ void u64le_to_me(uint64_t data, char* buffer)
 }
 
 // Write the 64 bits of `data` to `buf` in big-endian form
-void u64le_to_be(uint64_t data, char* buf)
+void u64le_to_be(uint64_t data, unsigned char* buf)
 {
 	int i = 0;
 	uint8_t d;
@@ -84,7 +90,7 @@ char* join(char** strings, int len, char* sep)
 	return endstr;
 }
 
-uint64_t u64be_to_le(char* b)
+uint64_t u64be_to_le(unsigned char* b)
 {
 	uint64_t ret = 0x00;
 	int i;
@@ -94,7 +100,7 @@ uint64_t u64be_to_le(char* b)
 	return ret;
 }
 
-uint64_t u64me_to_le(char* b)
+uint64_t u64me_to_le(unsigned char* b)
 {
 	uint64_t ret = 0x00;
 	int i;
@@ -105,7 +111,7 @@ uint64_t u64me_to_le(char* b)
 	return ret;
 }
 
-uint32_t u32be_to_le(char* b)
+uint32_t u32be_to_le(unsigned char* b)
 {
 	uint32_t ret = 0;
 	int i;
@@ -115,7 +121,7 @@ uint32_t u32be_to_le(char* b)
 	return ret;
 }
 
-uint32_t u32me_to_le(char* b)
+uint32_t u32me_to_le(unsigned char* b)
 {
 	uint32_t ret = 0;
 	uint32_t hi16 = (uint32_t)(*((uint16_t*)b));
@@ -125,7 +131,7 @@ uint32_t u32me_to_le(char* b)
 	return ret;
 }
 
-uint16_t u16be_to_le(char* b)
+uint16_t u16be_to_le(unsigned char* b)
 {
 	uint16_t ret;
 	int i;
