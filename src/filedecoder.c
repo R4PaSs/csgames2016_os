@@ -177,7 +177,7 @@ void write_file(FILE* in, file_meta* fm, partition* part, char* outpath) {
 		uint32_t local_size = u32me_to_le(ext + 1);
 		printf("Reading chunk of %d bytes for file %s fm->name at offset %d\n", local_size, fm->name, ext_id);
 		fwrite(ext + 5, local_size, 1, out);
-		uint32_t nxt_id = u32be_to_le(ext + ext_byte_size - 5);
+		uint32_t nxt_id = u32be_to_le(ext + ext_byte_size - 4);
 		printf("Next extent id = %d\n", nxt_id);
 		if(nxt_id == 0)
 			break;

@@ -430,7 +430,7 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 	if(fw->remaining > 0) {
 		if(wq->next == NULL) {
 			wq->definition->next_extent += 1;
-			u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 5);
+			u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 4);
 			encrypt_extent(extent);
 			fwrite(extent, 1, extentbtsz, out);
 			return wq;
@@ -444,8 +444,8 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		lst->next = w;
 		int nxt = lst->definition->next_extent + 1;
 		w->definition->next_extent = nxt;
-		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 5, nxt);
-		u32le_to_be(nxt, extent + extentbtsz - 5);
+		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 4, nxt);
+		u32le_to_be(nxt, extent + extentbtsz - 4);
 	} else {
 		printf("Freeing file path %s at address %p, file handler at address %p\n", fm->src_path, fm->src_path, fw->src);
 		writequeue* w = wq;
