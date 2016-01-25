@@ -47,6 +47,8 @@ file_meta* read_file_info(unsigned char* ext);
 void print_hierarchy(directory* dir);
 void write_directory(FILE* in, directory* dir, partition* part, char* outpath);
 void write_file(FILE* in, file_meta* fm, partition* part, char* outpath);
+void ror_extent(char* extent, partition* part);
+void xor_extent(char* extent, partition* part);
 
 // Debug functions
 // Prints the contents of `part`

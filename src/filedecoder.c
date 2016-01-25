@@ -52,6 +52,37 @@ void parse_filesystem(char *inpath, char* outpath)
 	fclose(in);
 }
 
+void decrypt_extent(char* ext, partition* part) {
+	uint32_t enc_type = part->encryption_type;
+	if(enc_type == 0x80) {
+		ror_extent(ext, part);
+	} else if(enc_type == 0x40) {
+		xor_extent(ext, part);	
+	}
+}
+
+// Does a ROR on every byte of the extent
+void ror_extent(char* extent, partition* part)
+{
+	int i;
+	int ext_sz = part->ext_size * sector_size;
+	int ror_len = part->mask_data[0];
+	for(i = 0; i < ext_sz; i++) {
+		extent[i] = (extent[i] >> ror_len) | (extent[i] << (8 - ror_len));
+	}
+}
+
+// XOR each byte of an extent with a char of the key
+void xor_extent(char* extent, partition* part)
+{
+	int keylen = strlen(part->mask_data);
+	int i;
+	int ext_sz = part->ext_size * sector_size;
+	for(i = 0; i < ext_sz; i++) {
+		extent[i] = extent[i] ^ part->mask_data[i % keylen];
+	}
+}
+
 partition* parse_part_info(FILE *in)
 {
 	partition* ret = malloc(sizeof(partition));
@@ -78,6 +109,7 @@ directory* parse_file_hierarchy(FILE* in, partition* fsmeta)
 {
 	unsigned char* ext = malloc(fsmeta->ext_size * sector_size);
 	fread(ext, fsmeta->ext_size, sector_size, in);
+	decrypt_extent(ext, fsmeta);
 	if(ext[0] != 0x80) {
 		printf("Error: Top entity is not a directory !\n");
 		exit(-1);
@@ -97,6 +129,7 @@ directory* parse_file_hierarchy(FILE* in, partition* fsmeta)
 	for(i = 0; i < (fsmeta->hierarchy_size - 1); i++) {
 		move_to_extent(in, i + 2, fsmeta);
 		fread(ext, fsmeta->ext_size, sector_size, in);
+		decrypt_extent(ext, fsmeta);
 		if(ext[0] == 0x40) {
 			file_meta* fm = read_file_info(ext);
 			directory* dir = find_dir_id(fm->parent_id, rootdir);
@@ -174,6 +207,7 @@ void write_file(FILE* in, file_meta* fm, partition* part, char* outpath) {
 	char* ext = malloc(ext_byte_size);
 	while(1) {
 		fread(ext, ext_byte_size, 1, in);
+		decrypt_extent(ext, part);
 		uint32_t local_size = u32me_to_le(ext + 1);
 		printf("Reading chunk of %d bytes for file %s fm->name at offset %d\n", local_size, fm->name, ext_id);
 		fwrite(ext + 5, local_size, 1, out);
