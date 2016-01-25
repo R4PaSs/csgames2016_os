@@ -194,7 +194,7 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent)
 	u32le_to_be(d->dir_id, extent + 1);
 	u32le_to_be(d->parent_dir, extent + 5);
 	memcpy(extent + 9, d->dir_name, 50);
-	u64le_to_be(d->data_location, extent + 59);
+	u64le_to_me(d->data_location, extent + 59);
 	encrypt_extent(extent);
 	fwrite(extent, 1, extent_size * sector_size, out);
 	metalist* m = d->children;
@@ -284,6 +284,7 @@ writequeue* make_filenode(filemeta* f)
 	wd->magic = 0x40;
 	filewrite* fw = calloc(1, sizeof(filewrite));
 	FILE* fr = fopen(f->src_path, "r");
+	printf("Making writenode for file %s, path is %s\n", f->filename, f->src_path);
 	fw->src = fr;
 	fw->remaining = in_byte_size(".", f->src_path);
 	fw->metadata = f;
@@ -398,8 +399,8 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 // Writes a chunk of data for the file in `wq`
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 {
-	//printf("Writing file chunk to disk\n");
-	//debug_writequeue(wq);
+	printf("Writing file chunk to disk\n");
+	debug_writequeue(wq);
 	int extentbtsz = extent_size * sector_size;
 	int maxdata = extentbtsz - 9;
 	memset(extent, 0, extentbtsz);
@@ -426,7 +427,7 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 			fwrite(extent, 1, extentbtsz, out);
 			return wq;
 		}
-		//printf("Remaining space for file %s: %d\n", fm->src_path, fw->remaining);
+		printf("Remaining space for file %s: %d\n", fm->src_path, fw->remaining);
 		writequeue* w = wq;
 		wq = wq->next;
 		w->next = NULL;
@@ -435,9 +436,16 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		lst->next = w;
 		int nxt = lst->definition->next_extent + 1;
 		w->definition->next_extent = nxt;
+		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 5, nxt);
 		u32le_to_be(nxt, extent + extentbtsz - 5);
+		int i;
+		printf("Hexadecimal at offset is: ");
+		for(i = 0; i < 4; i ++) {
+			printf("0x%02x ", (unsigned char)*(extent + extentbtsz - 5 + i));
+		}
+		printf("\n");
 	} else {
-		//printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
+		printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
 		writequeue* w = wq;
 		wq = w->next;
 		fclose(fw->src);

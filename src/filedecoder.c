@@ -29,12 +29,13 @@ int main(int argc, char** argv)
 	if(!stat(argv[1], &s)) {
 		if(S_ISDIR(s.st_mode) || S_ISREG(s.st_mode)) {
 			parse_filesystem(path, out);
+			printf("Successfully extracted data from %s\n", path);
 		} else {
 			printf("Bad argument %s, expected path to a file or a directory\n", path);
 			free(path);
 		}
 	} else {
-		printf("Error: syscall to stat failed, are you sure %s exists ?", path);
+		printf("Error: syscall to stat failed, are you sure %s exists ?\n", path);
 		free(path);
 	}
 }
@@ -46,7 +47,9 @@ void parse_filesystem(char *inpath, char* outpath)
 	dump_partition(part);
 	// Forward to file hierarchy
 	move_to_extent(in, 1, part);
-	dir_meta* dirs = parse_file_hierarchy(in, part);
+	directory* dirs = parse_file_hierarchy(in, part);
+	write_directory(in, dirs, part, outpath);
+	fclose(in);
 }
 
 partition* parse_part_info(FILE *in)
@@ -71,7 +74,7 @@ partition* parse_part_info(FILE *in)
 	return ret;
 }
 
-dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta)
+directory* parse_file_hierarchy(FILE* in, partition* fsmeta)
 {
 	unsigned char* ext = malloc(fsmeta->ext_size * sector_size);
 	fread(ext, fsmeta->ext_size, sector_size, in);
@@ -89,21 +92,36 @@ dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta)
 	root->parent_id = 0;
 	root->ext_location = 1;
 	directory* rootdir = calloc(sizeof(directory), 1);
+	rootdir->meta = root;
 	int i;
 	for(i = 0; i < (fsmeta->hierarchy_size - 1); i++) {
 		move_to_extent(in, i + 2, fsmeta);
 		fread(ext, fsmeta->ext_size, sector_size, in);
 		if(ext[0] == 0x40) {
 			file_meta* fm = read_file_info(ext);
+			directory* dir = find_dir_id(fm->parent_id, rootdir);
+			if(dir == NULL) {
+				printf("Error: Cannot find directory id %d in hierarchy", fm->parent_id);
+				exit(-4);
+			}
+			add_child_file_to_dir(fm, dir);
 			dump_filemeta(fm);
 		} else if(ext[0] == 0x80) {
 			dir_meta* dm = read_folder_info(ext);
+			directory* dir = find_dir_id(dm->parent_id, rootdir);
+			if(dir == NULL) {
+				printf("Error: Cannot find directory id %d in hierarchy", dm->parent_id);
+				exit(-4);
+			}
+			add_child_dir_to_dir(dm, dir);
 			dump_dirmeta(dm);
 		} else {
 			printf("Bad data chunk.\n");
 			exit(-3);
 		}
 	}
+	print_hierarchy(rootdir);
+	return rootdir;
 }
 
 dir_meta* read_folder_info(unsigned char* ext)
@@ -112,7 +130,7 @@ dir_meta* read_folder_info(unsigned char* ext)
 	ret->id = u32be_to_le(ext + 1);
 	ret->parent_id = u32be_to_le(ext + 5);
 	ret->name = calloc(50, 1);
-	memcpy(ret->name, ext+9, 50);
+	memcpy(ret->name, ext + 9, 50);
 	ret->ext_location = u64me_to_le(ext + 59);
 	return ret;
 }
@@ -130,6 +148,41 @@ file_meta* read_file_info(unsigned char* ext)
 	return ret;
 }
 
+void write_directory(FILE* in, directory* dir, partition* part, char* outpath) {
+	mkdir(outpath, S_IRWXU);
+	int i;
+	for(i = 0; i < dir->children_dirs_nb; i++) {
+		char* dir_join[] = { outpath, dir->children_dirs[i]->meta->name };
+		char* dirpath = join(dir_join, 2, "/");
+		write_directory(in, dir->children_dirs[i], part, dirpath);
+		free(dirpath);
+	}
+	for(i = 0; i < dir->children_files_nb; i++) {
+		char* file_join[] = { outpath, dir->children_files[i]->name };
+		char* filepath = join(file_join, 2, "/");
+		write_file(in, dir->children_files[i], part, filepath);
+		free(filepath);
+	}
+}
+
+void write_file(FILE* in, file_meta* fm, partition* part, char* outpath) {
+	FILE* out = fopen(outpath, "w");
+	move_to_extent(in, fm->ext_location, part);
+	int ext_byte_size = part->ext_size * sector_size;
+	char* ext = malloc(ext_byte_size);
+	while(1) {
+		fread(ext, ext_byte_size, 1, in);
+		uint32_t local_size = u32me_to_le(ext + 1);
+		fwrite(ext + 5, local_size, 1, out);
+		uint32_t nxt_id = u32be_to_le(ext + ext_byte_size - 5);
+		printf("Next extent id = %d\n", nxt_id);
+		if(nxt_id == 0)
+			break;
+		move_to_extent(in, nxt_id, part);
+	}
+	fclose(out);
+}
+
 void move_to_extent(FILE* in, uint64_t extent_id, partition* meta)
 {
 	fseek(in, meta->ext_size * sector_size * extent_id, SEEK_SET);
@@ -138,6 +191,8 @@ void move_to_extent(FILE* in, uint64_t extent_id, partition* meta)
 directory* find_dir_id(uint32_t id, directory* dir)
 {
 	int i = 0;
+	if(dir->meta->id == id)
+		return dir;
 	for(i = 0; i < dir->children_dirs_nb; i++){
 		directory* dirdir = dir->children_dirs[i];
 		dir_meta* dirmet = dirdir->meta;
@@ -155,10 +210,10 @@ void add_child_dir_to_dir(dir_meta* meta, directory* dir)
 	int sz = ++dir->children_dirs_nb;
 	directory* ndir = calloc(sizeof(directory), 1);
 	ndir->meta = meta;
-	directory** ndirs = malloc(sz * sizeof(void*));
+	directory** ndirs = calloc(sz, sizeof(void*));
 	if(sz > 1) {
-		free(dir->children_dirs);
 		memcpy(ndirs, dir->children_dirs, (sz - 1) * sizeof(void*));
+		free(dir->children_dirs);
 	}
 	ndirs[sz - 1] = ndir;
 	dir->children_dirs = ndirs;
@@ -167,10 +222,12 @@ void add_child_dir_to_dir(dir_meta* meta, directory* dir)
 void add_child_file_to_dir(file_meta* meta, directory* dir)
 {
 	int sz = ++dir->children_files_nb;
-	file_meta** ndirs = malloc(sz * sizeof(void*));
-	memcpy(ndirs, dir->children_files, (sz - 1) * sizeof(void*));
+	file_meta** ndirs = calloc(sz, sizeof(void*));
+	if(sz > 1) {
+		memcpy(ndirs, dir->children_files, (sz - 1) * sizeof(void*));
+		free(dir->children_files);
+	}
 	ndirs[sz - 1] = meta;
-	free(dir->children_dirs);
 	dir->children_files = ndirs;
 }
 
@@ -220,4 +277,22 @@ void dump_filemeta(file_meta *file)
 	printf("- Extent: %ld\n", file->ext_location);
 	printf("- Extent Size: %ld\n", file->ext_size);
 	printf("- Byte Size: %ld\n", file->byte_size);
+}
+
+void print_hierarchy(directory* dir) {
+	int i;
+	printf("Directory %d children files: \n", dir->meta->id);
+	for(i = 0; i < dir->children_files_nb; i++) {
+		printf("- File id %d\n", dir->children_files[i]->id);
+	}
+	printf("\n");
+	printf("Directory %d children directories: \n", dir->meta->id);
+	for(i = 0; i < dir->children_dirs_nb; i++) {
+		printf("- Directory id %d\n", dir->children_dirs[i]->meta->id);
+	}
+	printf("\n");
+	for(i = 0; i < dir->children_dirs_nb; i++) {
+		directory* subdir = dir->children_dirs[i];
+		print_hierarchy(subdir);
+	}
 }

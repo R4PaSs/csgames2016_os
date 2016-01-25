@@ -39,12 +39,14 @@ void parse_filesystem(char *inpath, char* outpath);
 partition* parse_part_info(FILE *in);
 void add_child_dir_to_dir(dir_meta*, directory*);
 void add_child_file_to_dir(file_meta*, directory*);
-dir_meta* parse_file_hierarchy(FILE* in, partition* fsmeta);
+directory* parse_file_hierarchy(FILE* in, partition* fsmeta);
 void move_to_extent(FILE* in, uint64_t extent_id, partition* meta);
 directory* find_dir_id(uint32_t id, directory* dir);
 dir_meta* read_folder_info(unsigned char* ext);
 file_meta* read_file_info(unsigned char* ext);
-
+void print_hierarchy(directory* dir);
+void write_directory(FILE* in, directory* dir, partition* part, char* outpath);
+void write_file(FILE* in, file_meta* fm, partition* part, char* outpath);
 
 // Debug functions
 // Prints the contents of `part`
