@@ -149,7 +149,7 @@ void write_fs_to(dirmeta* d, char* path)
 	FILE* fout = fopen(path, "w");
 	write_fs_info(fs, fout);
 	char* ext = malloc(extent_size * sector_size);
-	assign_start_ext_to_meta(d, fs->file_hierarchy_sz);
+	assign_start_ext_to_meta(d, fs->file_hierarchy_sz + 1);
 	write_hierarchy_to(d, fout, ext);
 	writequeue* w = build_writequeue(d);
 	commit_data_to_disk(w, fout, ext);
