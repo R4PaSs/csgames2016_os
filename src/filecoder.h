@@ -93,7 +93,7 @@ typedef struct writedef {
 
 typedef struct filewrite {
 	// Source of the file
-	FILE* src;
+	int position_in_src;
 	// Remaining bytes to write
 	int remaining;
 	// Metadata for the file

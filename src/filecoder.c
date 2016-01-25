@@ -10,6 +10,7 @@
 #include <string.h>
 #include <libgen.h>
 #include <unistd.h>
+#include <errno.h>
 
 int main(int argc, char** argv)
 {
@@ -283,9 +284,8 @@ writequeue* make_filenode(filemeta* f)
 	writedef* wd = calloc(1, sizeof(writedef));
 	wd->magic = 0x40;
 	filewrite* fw = calloc(1, sizeof(filewrite));
-	FILE* fr = fopen(f->src_path, "r");
-	printf("Making writenode for file %s, path is %s, file handle is at address %p\n", f->filename, f->src_path, fr);
-	fw->src = fr;
+	//printf("Making writenode for file %s, path is %s\n", f->filename, f->src_path);
+	fw->position_in_src = 0;
 	fw->remaining = in_byte_size(".", f->src_path);
 	fw->metadata = f;
 	wd->meta = fw;
@@ -346,18 +346,19 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 	dirmeta* d = dw->dir;
 	metalist* s = dw->children;
 	if(d->data_location == wq->definition->next_extent) {
-		extent[extpos] = 0x40;
+		extent[extpos] = 0x80;
 		u32le_to_be(count_children(d), extent);
 		// TODO date, 14 bytes in two fields
 		extpos += 19;
 	} else {
-		extent[extpos] = 0x80;
+		extent[extpos] = 0x40;
 		extpos += 1;
 	}
 	metalist* m = dw->children;
 	int i;
 	int entries = (extentbtsz - extpos - 4) / 5;
 	for(i = 0; i < entries; i++) {
+		if(m == NULL) break;
 		extent[extpos] = m->magic;
 		if(m->magic = 0x80) {
 			u32le_to_be(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
@@ -368,7 +369,6 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		metalist* m2 = m->next;
 		free(m);
 		m = m2;
-		if(m == NULL) break;
 	}
 	if(m != NULL) {
 		writequeue* w = wq;
@@ -400,7 +400,7 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 {
 	printf("Writing file chunk to disk\n");
-	debug_writequeue(wq);
+	//debug_writequeue(wq);
 	int extentbtsz = extent_size * sector_size;
 	int maxdata = extentbtsz - 9;
 	memset(extent, 0, extentbtsz);
@@ -425,7 +425,21 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		printf("0x%02x ", (unsigned char)*(extent + 1 + i));
 	}
 	printf("\n");
-	int rd = fread(extent + 5, 1, maxdata, fw->src);
+	FILE* src = fopen(fm->src_path, "r");
+	if(src != NULL) {
+		printf("Successfully opened FILE* at address %p\n", src);
+	} else {
+		printf("Failed to open FILE* for file %s\n", fm->filename);
+		printf("File error: %s\n", strerror(errno));
+		exit(-1);
+	}
+	fseek(src, fw->position_in_src, SEEK_SET);
+	int rd = fread(extent + 5, 1, maxdata, src);
+	int ret = fclose(src);
+	if(ret != 0) {
+		printf("Error when closing stream %p, %s\n", src, strerror(errno));
+	}
+	fw->position_in_src += rd;
 	fw->remaining -= rd;
 	if(fw->remaining > 0) {
 		if(wq->next == NULL) {
@@ -447,10 +461,9 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 4, nxt);
 		u32le_to_be(nxt, extent + extentbtsz - 4);
 	} else {
-		printf("Freeing file path %s at address %p, file handler at address %p\n", fm->src_path, fm->src_path, fw->src);
+		printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
 		writequeue* w = wq;
 		wq = w->next;
-		fclose(fw->src);
 		free(fm->src_path);
 		free(fm);
 		free(fw);
@@ -581,7 +594,7 @@ int add_folder_to(char* path, dirmeta* d, int next) {
 int add_file_to(char* path, dirmeta* d, int next) {
 	filemeta* fm = calloc(1, sizeof(filemeta));
 	fm->parent_dir = d->dir_id;
-	fm->byte_size = in_byte_size("", path);
+	fm->byte_size = in_byte_size(".", path);
 	fm->src_path = path;
 	fm->file_id = next;
 	char* bn = basename(path);
@@ -629,15 +642,18 @@ int in_file_byte_size(char* parent_path, char* in_path)
 	char* ss[] = {parent_path, in_path};
 	char* path = join(ss, 2, "/");
 	int f = open(path, O_RDONLY);
-	if(f == -1)
+	int sz = 0;
+	if(f == -1) {
+		printf("Error when opening %s, %s\n", path, strerror(errno));
 		return 0;
+	}
 	struct stat s;
 	if(!fstat(f, &s)) {
-		return s.st_size;
+		 sz = s.st_size;
 	}
 	close(f);
 	free(path);
-	return 0;
+	return sz;
 }
 
 // Computes the size of a directory's elements
