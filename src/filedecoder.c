@@ -62,7 +62,7 @@ void decrypt_extent(char* ext, partition* part) {
 }
 
 // Does a ROR on every byte of the extent
-void ror_extent(char* extent, partition* part)
+void ror_extent(unsigned char* extent, partition* part)
 {
 	int i;
 	int ext_sz = part->ext_size * sector_size;
@@ -92,13 +92,17 @@ partition* parse_part_info(FILE *in)
 	ret->ext_size = buffer[8];
 	memcpy(ret->volume_name, (buffer + 9), 40);
 	ret->hierarchy_size = u64be_to_le(buffer + 49);
-	ret->encryption_type = *(buffer + 57);
+	ret->encryption_type = (*(buffer + 57)) & 0xF0;
 	if(ret->encryption_type == 0x40) {
 		int mask_sz = *(buffer + 58);
 		char* mask_data = malloc(mask_sz);
 		memcpy(mask_data, buffer + 59, mask_sz);
 		ret->mask_sz = mask_sz;
 		ret->mask_data = mask_data;
+	} else if (ret->encryption_type == 0x80) {
+		char* mask = malloc(1);
+		mask[0] = (*(buffer + 57)) & 0x0F;
+		ret->mask_data = mask;
 	} else {
 		ret->mask_sz = 0;
 	}
@@ -110,6 +114,7 @@ directory* parse_file_hierarchy(FILE* in, partition* fsmeta)
 	unsigned char* ext = malloc(fsmeta->ext_size * sector_size);
 	fread(ext, fsmeta->ext_size, sector_size, in);
 	decrypt_extent(ext, fsmeta);
+	printf("First byte is %02x\n", ext[0]);
 	if(ext[0] != 0x80) {
 		printf("Error: Top entity is not a directory !\n");
 		exit(-1);
@@ -293,7 +298,7 @@ void dump_partition(partition* part) {
 		}
 		printf("\n");
 	} else if (encryption == 0x80) {
-		printf("- encryption mask: %d\n", part->encryption_type & 0x0F);
+		printf("- encryption mask: %d\n", part->mask_data[0]);
 	}
 }
 

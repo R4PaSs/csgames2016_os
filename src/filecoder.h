@@ -146,6 +146,6 @@ void commit_data_to_disk(writequeue* wq, FILE* out, char* extent);
 writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent);
 writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent);
 void debug_writequeue(writequeue* w);
-void rol_extent(char* extent);
+void rol_extent(unsigned char* extent);
 void xor_extent(char* extent);
 void encrypt_extent(char* extent);

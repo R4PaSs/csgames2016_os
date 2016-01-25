@@ -84,7 +84,7 @@ void encrypt_extent(char* extent)
 }
 
 // Does a ROL on every byte of the extent
-void rol_extent(char* extent)
+void rol_extent(unsigned char* extent)
 {
 	int i;
 	int ext_sz = extent_size * sector_size;

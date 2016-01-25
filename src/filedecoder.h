@@ -2,25 +2,25 @@ static int sector_size = 512;
 
 typedef struct partition {
 	uint64_t size;
-	char ext_size;
-	char volume_name[40];
+	unsigned char ext_size;
+	unsigned char volume_name[40];
 	uint64_t hierarchy_size;
-	char encryption_type;
-	char mask_sz;
-	char* mask_data;
+	unsigned char encryption_type;
+	unsigned char mask_sz;
+	unsigned char* mask_data;
 } partition;
 
 typedef struct dir_meta {
 	uint32_t id;
 	uint32_t parent_id;
-	char* name;
+	unsigned char* name;
 	uint64_t ext_location;
 } dir_meta;
 
 typedef struct file_meta {
 	uint32_t id;
 	uint32_t parent_id;
-	char* name;
+	unsigned char* name;
 	uint64_t ext_location;
 	uint64_t ext_size;
 	uint64_t byte_size;
@@ -47,7 +47,7 @@ file_meta* read_file_info(unsigned char* ext);
 void print_hierarchy(directory* dir);
 void write_directory(FILE* in, directory* dir, partition* part, char* outpath);
 void write_file(FILE* in, file_meta* fm, partition* part, char* outpath);
-void ror_extent(char* extent, partition* part);
+void ror_extent(unsigned char* extent, partition* part);
 void xor_extent(char* extent, partition* part);
 
 // Debug functions
