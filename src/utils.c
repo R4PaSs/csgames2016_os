@@ -34,11 +34,11 @@ void u32le_to_be(uint32_t data, unsigned char* buffer) {
 		d = (data & (0xFFl << (8 * i))) >> (8 * i);
 		buffer[3 - i] = d;
 	}
-	printf("Written hex for %d in BE form is ", data);
-	for(i = 0; i < 4; i ++) {
-		printf("0x%02x ", buffer[i]);
-	}
-	printf("\n");
+	//printf("Written hex for %d in BE form is ", data);
+	//for(i = 0; i < 4; i ++) {
+	//	printf("0x%02x ", buffer[i]);
+	//}
+	//printf("\n");
 }
 
 // Write the 32 bits of `data` to `buffer` in middle-endian form

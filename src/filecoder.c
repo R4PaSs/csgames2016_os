@@ -337,7 +337,7 @@ void commit_data_to_disk(writequeue* wq, FILE* out, char* extent)
 // Writes a chunk of data for the directory in `wq`
 writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 {
-	//printf("Writing directory chunk to disk\n");
+	printf("Writing directory chunk to disk\n");
 	//debug_writequeue(wq);
 	int extpos = 0;
 	int extentbtsz = extent_size * sector_size;
@@ -361,28 +361,33 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		if(m == NULL) break;
 		extent[extpos] = m->magic;
 		if(m->magic = 0x80) {
-			u32le_to_be(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
+			u32le_to_me(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
 		} else if(m->magic == 0x40) {
-			u32le_to_be(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
+			u32le_to_me(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
 		}
 		extpos += 5;
 		metalist* m2 = m->next;
 		free(m);
 		m = m2;
 	}
+	dw->children = m;
 	if(m != NULL) {
+		printf("Remaining children for %s\n", d->src_path);
 		writequeue* w = wq;
-		while(w->next != NULL) w = w->next;
-		int nxt = w->definition->next_extent + 1;
-		wq = w->next;
-		w->definition->next_extent = nxt;
-		if(wq != NULL) {
-			append_to_writequeue(w, wq);
-		} else {
-			wq = w;
+		wq = wq->next;
+		if(wq == NULL) {
+			w->definition->next_extent += 1;
+			encrypt_extent(extent);
+			fwrite(extent, 1, extentbtsz, out);
+			return w;
 		}
+		w->next = NULL;
+		writequeue* lst = wq;
+		while(lst->next != NULL) lst = lst->next;
+		w->definition->next_extent = lst->definition->next_extent + 1;
+		append_to_writequeue(w, wq);
 	} else {
-		//printf("Freeing directory path %s at address %p\n", d->src_path, d->src_path);
+		printf("Freeing directory path %s at address %p\n", d->src_path, d->src_path);
 		writequeue* w = wq;
 		wq = wq->next;
 		free(d->src_path);
