@@ -164,11 +164,12 @@ void write_fs_info(filepart* fs, FILE* out)
 {
 	int ext_bytesz = fs->ext_size * sector_size;
 	char* extent = calloc(1, ext_bytesz);
-	u64le_to_me(fs->size_of_the_volume, extent);
+	memcpy(extent, &fs->size_of_the_volume, 8);
+	//u64le_to_me(fs->size_of_the_volume, extent);
 	extent[8] = fs->ext_size;
 	memcpy(extent + 9, fs->name, 40);
 	printf("File hierarchy size: %lu\n", fs->file_hierarchy_sz);
-	u64le_to_be(fs->file_hierarchy_sz, extent + 49);
+	memcpy(extent + 49, &fs->file_hierarchy_sz, 8);
 	int i;
 	printf("0x");
 	for(i = 0; i < 8; i ++)
@@ -192,10 +193,13 @@ void write_hierarchy_to(dirmeta* d, FILE* out, char* extent)
 {
 	memset(extent, 0, extent_size * sector_size);
 	extent[0] = 0x80;
-	u32le_to_be(d->dir_id, extent + 1);
-	u32le_to_be(d->parent_dir, extent + 5);
+	//u32le_to_be(d->dir_id, extent + 1);
+	memcpy(extent + 1, &d->dir_id, 4);
+	//u32le_to_be(d->parent_dir, extent + 5);
+	memcpy(extent + 5, &d->parent_dir, 4);
 	memcpy(extent + 9, d->dir_name, 50);
-	u64le_to_me(d->data_location, extent + 59);
+	//u64le_to_me(d->data_location, extent + 59);
+	memcpy(extent + 59, &d->data_location, 8);
 	encrypt_extent(extent);
 	fwrite(extent, 1, extent_size * sector_size, out);
 	metalist* m = d->children;
@@ -218,12 +222,17 @@ void write_filemeta_to(filemeta* f, FILE* out, char* extent)
 	memset(extent, 0, extent_size * sector_size);
 	extent[0] = 0x40;
 	printf("Writing file meta, ID = %d, parent ID = %d\n", f->file_id, f->parent_dir);
-	u32le_to_be(f->file_id, extent + 1);
-	u32le_to_be(f->parent_dir, extent + 5);
+	//u32le_to_be(f->file_id, extent + 1);
+	memcpy(extent + 1, & f->file_id, 4);
+	//u32le_to_be(f->parent_dir, extent + 5);
+	memcpy(extent + 5, & f->parent_dir, 4);
 	memcpy(extent + 9, f->filename, 50);
-	u64le_to_me(f->data_location, extent + 59);
-	u64le_to_me(f->ext_size, extent + 67);
-	u64le_to_me(f->byte_size, extent + 75);
+	//u64le_to_me(f->data_location, extent + 59);
+	memcpy(extent + 59, & f->data_location, 8);
+	//u64le_to_me(f->ext_size, extent + 67);
+	memcpy(extent + 67, & f->ext_size, 8);
+	//u64le_to_me(f->byte_size, extent + 75);
+	memcpy(extent + 75, & f->byte_size, 8);
 	encrypt_extent(extent);
 	fwrite(extent, 1, extent_size * sector_size, out);
 }
@@ -347,7 +356,9 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 	metalist* s = dw->children;
 	if(d->data_location == wq->definition->next_extent) {
 		extent[extpos] = 0x80;
-		u32le_to_be(count_children(d), extent + 1);
+		//u32le_to_be(count_children(d), extent);
+		uint32_t chlds = count_children(d);
+		memcpy(extent + 1, &chlds, 4);
 		// TODO date, 14 bytes in two fields
 		extpos += 19;
 	} else {
@@ -361,9 +372,11 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		if(m == NULL) break;
 		extent[extpos] = m->magic;
 		if(m->magic = 0x80) {
-			u32le_to_me(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
+			//u32le_to_me(((dirmeta*)m->metadata)->dir_id, extent + extpos + 1);
+			memcpy(extent + extpos + 1, &(((dirmeta*)m->metadata)->dir_id), 4);
 		} else if(m->magic == 0x40) {
-			u32le_to_me(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
+			//u32le_to_me(((filemeta*)m->metadata)->file_id, extent + extpos + 1);
+			memcpy(extent + extpos + 1, &(((filemeta*)m->metadata)->file_id), 4);
 		}
 		extpos += 5;
 		metalist* m2 = m->next;
@@ -419,10 +432,12 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 	}
 	if(fw->remaining > maxdata) {
 		printf("Writing 0x%04X (%d) bytes of data for file %s\n", maxdata, maxdata, fm->filename);
-		u32le_to_me(maxdata, extent + 1);
+		//u32le_to_me(maxdata, extent + 1);
+		memcpy(extent + 1, &maxdata, 4);
 	} else {
 		printf("Writing 0x%04X (%d) bytes of data for file %s\n", fw->remaining, fw->remaining, fm->filename);
-		u32le_to_me(fw->remaining, extent + 1);
+		//u32le_to_me(fw->remaining, extent + 1);
+		memcpy(extent + 1, &fw->remaining, 4);
 	}
 	int i;
 	printf("Hexadecimal at offset is: ");
@@ -449,7 +464,8 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 	if(fw->remaining > 0) {
 		if(wq->next == NULL) {
 			wq->definition->next_extent += 1;
-			u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 4);
+			//u32le_to_be(wq->definition->next_extent, extent + extentbtsz - 4);
+			memcpy(extent + extentbtsz - 4, &wq->definition->next_extent, 4);
 			encrypt_extent(extent);
 			fwrite(extent, 1, extentbtsz, out);
 			return wq;
@@ -461,10 +477,11 @@ writequeue* write_file_chunk(writequeue* wq, FILE* out, char* extent)
 		writequeue* lst = wq;
 		while(lst->next != NULL) lst = lst->next;
 		lst->next = w;
-		int nxt = lst->definition->next_extent + 1;
+		uint32_t nxt = lst->definition->next_extent + 1;
 		w->definition->next_extent = nxt;
 		printf("Wrtiting at offset %d value %d in BE 32\n", extentbtsz - 4, nxt);
-		u32le_to_be(nxt, extent + extentbtsz - 4);
+		//u32le_to_be(nxt, extent + extentbtsz - 4);
+		memcpy(extent + extentbtsz - 4, &nxt, 4);
 	} else {
 		printf("Freeing file path %s at address %p\n", fm->src_path, fm->src_path);
 		writequeue* w = wq;
