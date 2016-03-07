@@ -349,6 +349,15 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		extent[extpos] = 0x80;
 		u32le_to_be(count_children(d), extent + 1);
 		// TODO date, 14 bytes in two fields
+		memcpy(extent + 5, "DATETM", 6);
+		uint16_t year = rand() % 1000;
+		uint8_t month = rand() % 12;
+		uint8_t day = rand() % 30;
+		uint32_t seconds = rand() % 86400;
+		u16le_to_be(year, extent + 11);
+		extent[13] = month;
+		extent[14] = day;
+		u32le_to_be(seconds, extent + 15);
 		extpos += 19;
 	} else {
 		extent[extpos] = 0x40;

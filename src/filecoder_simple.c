@@ -11,9 +11,11 @@
 #include <libgen.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 
 int main(int argc, char** argv)
 {
+	srand(time(NULL));
 	if(argc < 2){
 		printf("Usage: ./filecoder file [-o outputfile] [-e extent_size] [-s sector_size] [-c none|xor|rol key?]\n");
 		exit(1);
@@ -359,7 +361,15 @@ writequeue* write_dir_chunk(writequeue* wq, FILE* out, char* extent)
 		//u32le_to_be(count_children(d), extent);
 		uint32_t chlds = count_children(d);
 		memcpy(extent + 1, &chlds, 4);
-		// TODO date, 14 bytes in two fields
+		memcpy(extent + 5, "DATETM", 6);
+		uint16_t year = rand() % 1000;
+		uint8_t month = rand() % 12;
+		uint8_t day = rand() % 30;
+		uint32_t seconds = rand() % 86400;
+		memcpy(extent + 11, &year, 2);
+		extent[13] = month;
+		extent[14] = day;
+		memcpy(extent + 15, &seconds, 4);
 		extpos += 19;
 	} else {
 		extent[extpos] = 0x40;
